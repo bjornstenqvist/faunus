@@ -224,6 +224,13 @@ set_property(TEST penalty APPEND PROPERTY ENVIRONMENT FAUNUS_EXECUTABLE=$<TARGET
 set_property(TEST penalty APPEND PROPERTY ENVIRONMENT YASON_EXECUTABLE=${YASON})
 
 add_test(
+    NAME multipole
+    COMMAND sh -c "jupyter nbconvert --execute multipole.ipynb --ExecutePreprocessor.timeout=None"
+    WORKING_DIRECTORY ${EXAMPLES_DIR}/multipole)
+set_property(TEST multipole APPEND PROPERTY ENVIRONMENT FAUNUS_EXECUTABLE=$<TARGET_FILE:faunus>)
+set_property(TEST multipole APPEND PROPERTY ENVIRONMENT YASON_EXECUTABLE=${YASON})
+
+add_test(
     NAME virial
     COMMAND sh -c "jupyter nbconvert --execute virial.ipynb --ExecutePreprocessor.timeout=None"
     WORKING_DIRECTORY ${EXAMPLES_DIR}/virial)
@@ -292,6 +299,13 @@ add_test(
     | $<TARGET_FILE:faunus> --quiet --state calciumhydroxide_molecular.state.json\
     && ${PYTHON_EXECUTABLE} ${JSON_COMPARE} calciumhydroxide_molecular.out.json out.json --tol 0.02"
     WORKING_DIRECTORY ${EXAMPLES_DIR}/calciumhydroxide_molecular)
+
+add_test(
+    NAME gouychapman
+    COMMAND sh -c "${PYTHON_EXECUTABLE} ${YASON} gouychapman.yml\
+    | $<TARGET_FILE:faunus> --quiet --state gouychapman.state.json\
+    && ${PYTHON_EXECUTABLE} ${JSON_COMPARE} gouychapman.out.json out.json --tol 0.015"
+    WORKING_DIRECTORY ${EXAMPLES_DIR}/gouychapman)
 
 add_test(
     NAME water-ewald-NOCHECKS
@@ -396,6 +410,9 @@ install(FILES
     ${EXAMPLES_DIR}/doublelayer/doublelayer.out.json
     ${EXAMPLES_DIR}/doublelayer/doublelayer.state.json
     ${EXAMPLES_DIR}/doublelayer/doublelayer.mfcorr.dat
+    ${EXAMPLES_DIR}/gouychapman/gouychapman.yml
+    ${EXAMPLES_DIR}/gouychapman/gouychapman.out.json
+    ${EXAMPLES_DIR}/gouychapman/gouychapman.state.json
     ${EXAMPLES_DIR}/isochoric.yml
     ${EXAMPLES_DIR}/isochoric.xyz
     ${EXAMPLES_DIR}/membrane/membrane.yml
@@ -407,6 +424,9 @@ install(FILES
     ${EXAMPLES_DIR}/minimal/minimal.state.json
     ${EXAMPLES_DIR}/penalty/penalty.yml
     ${EXAMPLES_DIR}/penalty/penalty.ipynb
+    ${EXAMPLES_DIR}/multipole/multipole.yml
+    ${EXAMPLES_DIR}/multipole/multipole.ipynb
+    ${EXAMPLES_DIR}/multipole/multipole.state.ubj
     ${EXAMPLES_DIR}/virial/virial.yml
     ${EXAMPLES_DIR}/virial/virial.ipynb
     ${EXAMPLES_DIR}/chain/chain.yml

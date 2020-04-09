@@ -249,6 +249,20 @@ properties:
                       properties:
                           debyelength: {type: number, description: Debye screening length (Å)}
                       required: [cutoff, debyelength]
+                      
+        electrolyte:
+            type: object
+            properties:
+                molarity: {type: number, description: "Molar salt concentreation (mol/l)"}
+                valency:
+                    type: array
+                    items: {type: integer}
+                    minItems: 2
+                    maxItems: 2
+                    default: [1,1]
+                    description: "Salt valencies (1:1, 2:1, 2:2 etc.)"
+                required: [molarity]
+                additionalProperties: false
 
         mixing_rule:
             description: Sigma and Epsilon Mixing rule
@@ -492,7 +506,28 @@ properties:
                             description: Array of molecules to operate on
                     required: [function, molecules]
                     additionalProperties: false
-
+                    allOf:
+                        - if:
+                              properties: {function: {const: "gouychapman"}}
+                          then:
+                              properties:
+                                  constants:
+                                      type: object
+                                      description: User-defined constants
+                                      properties:
+                                          rho: {type: number, description: "Surface charge density (Å⁻²)"}
+                                          rhoinv: {type: number, description: "Area per charge (Å²)"}
+                                          phi0: {type: number, description: "Surface potential"}
+                                          epsr: {type: number, description: "Relative dielectric constant"}
+                                          molarity: {type: number, description: "1:1 salt concentration (mol/l)"}
+                                          linearise: {type: boolean, description: "Use linearised Poisson-Boltzmann?", default: False}
+                                      required: [molarity, epsr]
+                                      oneOf:
+                                          - required: [rho]
+                                          - required: [rhoinv]
+                                          - required: [phi0]
+                                      additionalProperties: false
+ 
                 isobaric:
                     description: "External pressure"
                     type: object
@@ -649,7 +684,10 @@ properties:
                             items: {type: string}
                             type: array
                         spread: {type: boolean}
-                        threshold: {type: number}
+                        threshold:
+                            anyOf:
+                                - {type: number}
+                                - {type: object}
                         repeat: {type: integer}
                     required: [dp, dprot, molecules, threshold]
                     additionalProperties: false
@@ -738,6 +776,20 @@ properties:
                     required: [molecules, nstep]
                     type: object
 
+                multipoledist:
+                    type: object
+                    properties:
+                        molecules:
+                            minItems: 2
+                            maxItems: 2
+                            items: {type: string}
+                            type: array
+                            description: "Array with exactly two molecule names"
+                        nstep: {type: integer, description: "Sample interval"}
+                        nskip: {type: integer, default: 0, description: "Initial steps to skip"}
+                        dr: {type: number, description: "Distance resolution along R (Å)"}
+                    required: [molecules, nstep, dr]
+
                 reactioncoordinate:
                     type: object
                     properties:
@@ -773,6 +825,8 @@ properties:
                     description: "Save particle positions to file"
                     properties:
                         file: {type: string, pattern: "(.*?)\\.(aam|pqr|state|ubj|gro|xyz|json)$"}
+                        nstep: {type: integer, description: Sample interval}
+                        nskip: {type: integer, default: 0, description: Initial steps to skip}
                     required: [file]
                     additionalProperties: false
                     type: object

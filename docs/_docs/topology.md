@@ -31,6 +31,8 @@ random:              # seed for pseudo random number generator
 Below is a list of possible geometries, specified by `type`, for the simulation container,
 indicating if and in which directions periodic boundary conditions (PBC) are applied.
 Origin ($0,0,0$) is always placed in the geometric _center_ of the simulation container.
+Particles are always kept inside the simulation container with an external
+potential that is zero if inside; infinity if outside.
 
 `geometry` | PBC      | Required keywords
 ---------- | -------- | --------------------------------------
@@ -40,6 +42,15 @@ Origin ($0,0,0$) is always placed in the geometric _center_ of the simulation co
 `hexagonal`| $x,y$    | `radius` (inscribed/inner), `length` (along _z_)
 `cylinder` | $z$      | `radius`, `length` (along _z_)
 `sphere`   | none     | `radius`
+
+### Simulation Steps
+
+The variables `macro` and `micro` are positive integers and their product
+defines the total number simulations steps.
+In each step a random Monte Carlo move is drawn from a weighted distribution.
+For each `macro` step, all analysis methods are, if befitting, instructed to
+flush buffered data to disk and may also trigger terminal output.
+For this reason `macro` is typically set lower than `micro`.
 
 ## Atom Properties
 
@@ -178,13 +189,13 @@ making a union.
 Upon starting a simulation, an initial configuration is required and must be
 specified in the section `insertmolecules` as a list of valid molecule names.
 Molecules are inserted in the given order and may be `inactive`.
-If a group is marked `atomic`, its `atoms` is inserted `N` times.
+If a group is marked `atomic`, its `atoms` are inserted `N` times.
 
 Example:
 
 ~~~ yaml
 insertmolecules:
-  - salt:  { N: 10 }
+  - salt:  { molarity: 0.1 }
   - water: { N: 256 }
   - water: { N: 1, inactive: true }
 ~~~
@@ -194,6 +205,7 @@ The following keywords for each molecule type are available:
 `insertmolecules`    | Description
 -------------------- | ---------------------------------------
 `N`                  | Number of molecules to insert
+`molarity`           | Insert molecules to reach molarity
 `inactive=false`     | Deactivates inserted molecules
 `positions`          | Load positions from file (`aam`, `pqr`, `xyz`)
 `translate=[0,0,0]`  | Displace loaded `positions` with vector
@@ -205,6 +217,11 @@ the file are copied; all other information is ignored.
 
 For `implicit` molecules, only `N` should be given and the molecules are never
 inserted into the simulation box.
+
+The `molarity` keyword is an alternative to `N` and uses the initial
+volume to calculate the number of molecules to insert. `N` and
+`molarity` are mutually exclusive.
+
 
 ### Overlap Check
 

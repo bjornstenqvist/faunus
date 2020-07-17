@@ -9,6 +9,10 @@
 
 namespace Faunus {
 
+namespace Energy {
+class Hamiltonian;
+}
+
 namespace Move {
 
 class Movebase {
@@ -74,29 +78,27 @@ class AtomicSwapCharge : public Movebase {
  * @brief Translate and rotate a molecular group
  */
 class AtomicTranslateRotate : public Movebase {
+  private:
+    double _sqd; //!< temporary squared displacement
   protected:
-    Space &spc; // Space to operate on
-    int molid = -1;
-    Point dir = {1, 1, 1};
-    Average<double> msqd; // mean squared displacement
-    double _sqd;          // squared displament
-    std::string molname;  // name of molecule to operate on
-    Change::data cdata;
+    Space &spc;                               //!< Space to operate on
+    int molid = -1;                           //!< Molecule id to move
+    Point directions = {1, 1, 1};             //!< displacement directions
+    Average<double> mean_square_displacement; //!< mean squared displacement
+    std::string molecule_name;                //!< name of molecule to operate on
+    Change::data cdata;                       //!< Data for change object
 
-    void _to_json(json &j) const override;
-    void _from_json(const json &j) override; //!< Configure via json object
-    std::vector<Particle>::iterator randomAtom();
+    void _to_json(json &) const override;
+    void _from_json(const json &) override; //!< Configure via json object
+    ParticleVector::iterator randomAtom();  //!< Select random particle to move
 
-    /**
-     * @brief translates a single particle.
-     */
-    virtual void translateParticle(typename ParticleVector::iterator p, double dp);
-    void _move(Change &change) override;
+    virtual void translateParticle(ParticleVector::iterator, double); //!< translate single particle
+    void _move(Change &) override;
     void _accept(Change &) override;
     void _reject(Change &) override;
 
   public:
-    AtomicTranslateRotate(Space &spc);
+    AtomicTranslateRotate(Space &);
 };
 
 /**
@@ -182,11 +184,11 @@ TEST_CASE("[Faunus] TranslateRotate") {
 
     Space spc;
     TranslateRotate mv(spc);
-    json j = R"( {"molecule":"B", "dp":1.0, "dprot":0.5, "dir":[0,1,0], "repeat":2 })"_json;
+    json j = R"( {"molecule":"A", "dp":1.0, "dprot":0.5, "dir":[0,1,0], "repeat":2 })"_json;
     mv.from_json(j);
 
     j = json(mv).at(mv.name);
-    CHECK(j.at("molecule") == "B");
+    CHECK(j.at("molecule") == "A");
     CHECK(j.at("dir") == Point(0, 1, 0));
     CHECK(j.at("dp") == 1.0);
     CHECK(j.at("repeat") == 2);
@@ -276,20 +278,6 @@ class ConformationSwap : public Movebase {
     ConformationSwap(Space &spc);
 
 }; // end of conformation swap move
-
-/**
- * @brief Sketch for MD move
- */
-class ForceMove : public Movebase {
-  private:
-    typedef typename Space::Tpvec Tpvec;
-    void _to_json(json &) const override{};
-    void _from_json(const json &) override{};
-    std::vector<Point> forces, velocities;
-
-  public:
-    ForceMove();
-}; // end of forcemove
 
 class VolumeMove : public Movebase {
   private:
@@ -452,7 +440,7 @@ class Propagator {
 
   public:
     Propagator() = default;
-    Propagator(const json &j, Space &spc, MPI::MPIController &mpi);
+    Propagator(const json &j, Space &spc, Energy::Hamiltonian &pot, MPI::MPIController &mpi);
     auto repeat() const -> decltype(_repeat) { return _repeat; }
     auto moves() const -> const decltype(_moves) & { return _moves; };
     auto sample() {

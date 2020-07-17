@@ -205,6 +205,7 @@ class Ewald : public Energybase {
               Change &) override; //!< Called after a move is rejected/accepted
                                   //! as well as before simulation
     void to_json(json &) const override;
+    void force(std::vector<Point> &) override; // update forces on all particles
 };
 
 class Isobaric : public Energybase {
@@ -246,7 +247,7 @@ class Bonded : public Energybase {
     Space &spc;
     typedef BasePointerVector<Potential::BondData> BondVector;
     BondVector inter;                // inter-molecular bonds
-    std::map<int, BondVector> intra; // intra-molecular bonds
+    std::map<int, BondVector> intra; // intra-molecular bonds; key is group index
 
   private:
     void update_intra();                              // finds and adds all intra-molecular bonds of active molecules
@@ -257,7 +258,8 @@ class Bonded : public Energybase {
   public:
     Bonded(const json &, Space &);
     void to_json(json &) const override;
-    double energy(Change &) override; // brute force -- refine this!
+    double energy(Change &) override;          //!< brute force -- refine this!
+    void force(std::vector<Point> &) override; //!< Calculates the forces on all particles
 };
 
 /**
@@ -353,7 +355,7 @@ template <typename TPairPotential, bool allow_anisotropic_pair_potential = true>
     template <typename T> inline double potential(const T &a, const T &b) const {
         assert(&a != &b); // a and b cannot be the same particle
         if constexpr (allow_anisotropic_pair_potential) {
-            Point r = geometry.vdist(a.pos, b.pos);
+            const Point r = geometry.vdist(a.pos, b.pos);
             return pair_potential(a, b, r.squaredNorm(), r);
         } else {
             return pair_potential(a, b, geometry.sqdist(a.pos, b.pos), {0, 0, 0});
@@ -363,12 +365,8 @@ template <typename TPairPotential, bool allow_anisotropic_pair_potential = true>
     // just a temporary placement until PairForce class template will be implemented
     template <typename T> inline Point force(const T &a, const T &b) const {
         assert(&a != &b); // a and b cannot be the same particle
-        if constexpr (allow_anisotropic_pair_potential) {
-            Point r = geometry.vdist(a.pos, b.pos);
-            return pair_potential.force(a, b, r.squaredNorm(), r);
-        } else {
-            return pair_potential.force(a, b, geometry.sqdist(a.pos, b.pos), {0, 0, 0});
-        }
+        const Point r = geometry.vdist(a.pos, b.pos);
+        return pair_potential.force(a, b, r.squaredNorm(), r);
     }
 
     /**
@@ -398,7 +396,7 @@ template <typename TPairPotential, bool allow_anisotropic_pair_potential = true>
         addPairPotentialSelfEnergy();
     }
 
-    void to_json(json &j) { pair_potential.to_json(j); }
+    void to_json(json &j) const { pair_potential.to_json(j); }
 };
 
 /**
@@ -432,9 +430,9 @@ template <typename TPairEnergy, typename TCutoff> class PairingBasePolicy {
         pair_energy.from_json(j);
     }
 
-    void to_json(json &j) {
-        Energy::to_json(j, cut);
+    void to_json(json &j) const {
         pair_energy.to_json(j);
+        Energy::to_json(j, cut);
     }
 
     template <typename T> inline double particle2particle(const T &a, const T &b) const {
@@ -857,8 +855,8 @@ template <typename TPairEnergy, typename TCutoff> class PairingBasePolicy {
     void force(std::vector<Point> &forces) {
         // just a temporary hack; perhaps better to allow PairForce instead of the PairEnergy template
         assert(forces.size() == spc.p.size() && "the forces size must match the particle size");
-        for (size_t i = 0; i < spc.p.size() - 1; i++) {
-            for (size_t j = i + 1; j < spc.p.size(); j++) {
+        for (size_t i = 0; i < spc.p.size() - 1; ++i) {
+            for (size_t j = i + 1; j < spc.p.size(); ++j) {
                 const Point f = pair_energy.force(spc.p[i], spc.p[j]);
                 forces[i] += f;
                 forces[j] -= f;
@@ -958,6 +956,8 @@ template <typename TPairingPolicy> class Nonbonded : public Energybase {
         pairing.from_json(j);
     }
 
+    void to_json(json &j) const override { pairing.to_json(j); }
+
     /**
      * @brief Calculates the force on all particles.
      *
@@ -975,6 +975,7 @@ template <typename TPairingPolicy> class Nonbonded : public Energybase {
      * @return energy sum between particle pairs
      */
     double energy(Change &change) override {
+        assert(std::is_sorted(change.groups.begin(), change.groups.end()));
         double u = 0;
         if (change.all) {
             u = pairing.all();
@@ -1020,7 +1021,7 @@ template <typename Tpairpot> class NonbondedCached : public Nonbonded<PairingPol
         if (j < i) {
             std::swap(i, j);
         }
-        if (base::key == Energybase::NEW) { // if this is from the trial system,
+        if (base::key == Energybase::TRIAL_MONTE_CARLO_STATE) { // if this is from the trial system,
             cache(i, j) = base::pairing.group2group(g1, g2); // update the cache
         }
         return cache(i, j); // return (cached) value
@@ -1177,8 +1178,9 @@ struct Example2D : public Energybase {
 class Hamiltonian : public Energybase, public BasePointerVector<Energybase> {
   protected:
     double maxenergy = pc::infty; //!< Maximum allowed energy change
-    void to_json(json &j) const override;
-    void addEwald(const json &j, Space &spc); //!< Adds an instance of reciprocal space Ewald energies (if appropriate)
+    void to_json(json &) const override;
+    void addEwald(const json &, Space &); //!< Adds an instance of reciprocal space Ewald energies (if appropriate)
+    void force(PointVector &) override;
   public:
     Hamiltonian(Space &spc, const json &j);
     double energy(Change &change) override; //!< Energy due to changes

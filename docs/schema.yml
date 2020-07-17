@@ -68,9 +68,12 @@ properties:
                 additionalProperties: false
                 properties:
                     N: {type: integer, description: Number of molecules to insert}
+                    molarity: {type: number, description: Insert molecules to reach this molarity}
                     inactive: {type: boolean, default: false, description: Should molecules be inactive?}
                     positions: {type: string, description: Load positions from file}
-                required: [N]
+                oneOf:
+                    - required: [N]
+                    - required: [molarity]
 
     atomlist:
         type: array
@@ -82,7 +85,7 @@ properties:
                 properties:
                     activity: {type: number, default: 0.0}
                     alphax: {type: number, default: 0.0}
-                    dp: {type: number, default: 0.0}
+                    dp: {type: number, default: 0.0, minimum: 0.0}
                     dprot: {type: number, default: 0.0, description: "Rotational displacement parameter"}
                     eps: {type: number, default: 0.0}
                     implicit: {type: boolean, default: false, description: "True if atom is implicit"}
@@ -248,6 +251,7 @@ properties:
                   then:
                       properties:
                           debyelength: {type: number, description: Debye screening length (Å)}
+                          shift: {type: boolean, description: Shift to zero at cutoff, default: true}
                       required: [cutoff, debyelength]
                       
         electrolyte:
@@ -422,6 +426,30 @@ properties:
                     additionalProperties:
                         allOf: [{"$ref": "#/properties/pairpotential/all"}]
 
+                nonbonded_splined:
+                    description: "Nonbonded interactions (splined pair potentials)"
+                    type: object
+                    properties:
+                        default: {"$ref": "#/properties/pairpotential/all"}
+                        cutoff_g2g: {type: [number, array]}
+                        timings: {type: boolean}
+                        utol: {type: number, description: "Energy tolerance for spline (kT)"}
+                        ftol: {type: number, description: "Force tolerance for spline (experimental!)"}
+                        hardsphere: {type: boolean, description: "Assume hardsphere potential for low separations", default: false}
+                        to_disk: {type: boolean, description: "Save splined potentials to disk}", default: false}
+                        u_at_rmin: {type: number, description: "Absolute energy threshold at min. separation (kT)", default: 20}
+                        u_at_rmax: {type: number, description: "Absolute energy threshold at max. separation (kT)", default: 1e-6}
+                        rmin: {type: number, description: "Hard coded minimum splining distance (Å)"}
+                        rmax: {type: number, description: "Hard coded maximum splining distance (Å)"}
+                        openmp:
+                            type: array
+                            items:
+                                type: string
+                                enum: [g2g, i2all]
+                    required: [default]
+                    additionalProperties:
+                        allOf: [{"$ref": "#/properties/pairpotential/all"}]
+
                 nonbonded_coulomblj:
                     description: "Nonbonded interactions (Coulomb+LennardJones)"
                     allOf:
@@ -527,7 +555,24 @@ properties:
                                           - required: [rhoinv]
                                           - required: [phi0]
                                       additionalProperties: false
- 
+                akesson:
+                    description: "Electric potential correction from outside cuboidal slit"
+                    type: object
+                    properties:
+                        dz: {type: number, default: 0.2, description: "resolution along z (Å)"}
+                        epsr: {type: number, description: "Relative dielectric constant"}
+                        file: {type: string, description: "Input/output file for charge density profile"}
+                        nphi: {type: integer, default: 10, description: "Multiple of `nstep` in between updating charge density profile"}
+                        fixed: {type: boolean, default: false, description: "If true, do not update loaded charge density"}
+                        nstep: {type: integer, description: "Number of energy evalutations between updating charge density"}
+                        molecules:
+                            type: array
+                            items: {type: string}
+                            minItems: 1
+                            description: "Array of molecules to operate on"
+                    required: [epsr, molecules, nstep]
+                    additionalProperties: false
+
                 isobaric:
                     description: "External pressure"
                     type: object
@@ -622,8 +667,6 @@ properties:
                 transrot:
                     description: "Atomic translation and rotation"
                     properties:
-                        dp: {type: number}
-                        dprot: {type: number}
                         molecule: {type: string}
                         repeat: {type: [integer, string]}
                         dir:
@@ -632,11 +675,6 @@ properties:
                             minItems: 3
                             maxItems: 3
                             default: [1,1,1]
-                        dirrot:
-                            items: {type: number}
-                            type: array
-                            minItems: 3
-                            maxItems: 3
                     required: [molecule]
                     additionalProperties: false
                     type: object
@@ -684,6 +722,9 @@ properties:
                             items: {type: string}
                             type: array
                         spread: {type: boolean}
+                        single_layer:
+                            type: boolean
+                            default: false
                         threshold:
                             anyOf:
                                 - {type: number}
@@ -824,9 +865,11 @@ properties:
                 savestate:
                     description: "Save particle positions to file"
                     properties:
-                        file: {type: string, pattern: "(.*?)\\.(aam|pqr|state|ubj|gro|xyz|json)$"}
-                        nstep: {type: integer, description: Sample interval}
-                        nskip: {type: integer, default: 0, description: Initial steps to skip}
+                        file: {type: string, description: "Output filename", pattern: "(.*?)\\.(aam|pqr|state|ubj|gro|xyz|json)$"}
+                        nstep: {type: integer, default: -1, description: "Sample interval; -1 = end of simulation only"}
+                        nskip: {type: integer, default: 0, description: "Initial steps to skip"}
+                        saverandom: {type: boolean, default: false, description: "Include random number state"}
+                        overwrite: {type: boolean, default: false, description: "Overwrite file for step, i.e. no file numbering"}
                     required: [file]
                     additionalProperties: false
                     type: object
@@ -892,6 +935,20 @@ properties:
                     additionalProperties: false
                     type: object
 
+                virtualvolume:
+                    description: "Virtual volume move"
+                    properties:
+                        file: {type: string, description: Output filename (.dat, .dat.gz)}
+                        dV: {type: number, description: Displacement volume}
+                        nstep: {type: integer, description: Interval between samples}
+                        nskip: {type: integer, default: 0, description: Number of steps to initially skip}
+                        scaling:
+                            type: string
+                            enum: [z, xy, isotropic]
+                            default: isotropic
+                    required: [dV, nstep]
+                    additionalProperties: false
+ 
                 virtualtranslate:
                     description: "Virtual molecule translation"
                     properties:

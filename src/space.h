@@ -232,15 +232,14 @@ class Space {
         return std::count_if(groups.begin(), groups.end(), filter);
     }
 
-    void sync(Space &other, const Tchange &change); //!< Copy differing data from other (o) Space using Change object
+    void sync(const Space &other,
+              const Tchange &change); //!< Copy differing data from other (o) Space using Change object
 
-    /*
-     * Scales:
-     * - positions of free atoms
-     * - positions of molecular masscenters
-     * - simulation container
+    /**
+     * @brief Scales atoms, molecules, and simulation container
+     * @returns Scaling factors in each dimension
      */
-    void scaleVolume(double Vnew, Geometry::VolumeMethod method = Geometry::ISOTROPIC); //!< scale space to new volume
+    Point scaleVolume(double, Geometry::VolumeMethod = Geometry::ISOTROPIC);
 
     json info();
 
@@ -261,7 +260,21 @@ void from_json(const json &j, Space &spc); //!< Deserialize json object to Space
  *     - water: { N: 1, inactive: true }
  * ~~~
  */
-void insertMolecules(const json &j, Space &spc); //!< Insert `N` molecules into space as defined in `insert`
+
+/**
+ * This class helps inserting molecules into Space, based on user
+ * JSON input.
+ */
+class InsertMoleculesInSpace {
+  private:
+    static void insertAtomicGroups(MoleculeData &, Space &, int, bool = false);
+    static void insertMolecularGroups(MoleculeData &, Space &, int num_molecules, bool);
+    static void setPositionsForTrailingGroups(Space &, int, const Faunus::ParticleVector &, const Point &);
+    static void insertImplicitGroups(const MoleculeData &, Space &, int);
+
+  public:
+    static void insertMolecules(const json &, Space &);
+}; // end of insertMolecules class
 
 /**
  * @brief Helper class for range-based for-loops over *active* particles

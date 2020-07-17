@@ -11,7 +11,7 @@
 /** @brief Faunus main namespace */
 namespace Faunus {
 
-struct Random;
+class Random;
 
 /**
  * @brief Simulation geometries and related operations.
@@ -35,7 +35,13 @@ typedef std::function<Point(const Point &, const Point &)> DistanceFunction;
 enum Variant { CUBOID = 0, SPHERE, CYLINDER, SLIT, HEXAGONAL, OCTAHEDRON, HYPERSPHERE2D };
 
 //! Various methods of volume scaling, @see GeometryBase::setVolume.
-enum VolumeMethod { ISOTROPIC, ISOCHORIC, XY, Z };
+enum VolumeMethod { ISOTROPIC, ISOCHORIC, XY, Z, INVALID };
+
+NLOHMANN_JSON_SERIALIZE_ENUM(VolumeMethod, {{VolumeMethod::INVALID, nullptr},
+                                            {VolumeMethod::ISOTROPIC, "isotropic"},
+                                            {VolumeMethod::ISOCHORIC, "isochoric"},
+                                            {VolumeMethod::XY, "xy"},
+                                            {VolumeMethod::Z, "z"}})
 
 enum Coordinates { ORTHOGONAL, ORTHOHEXAGONAL, TRUNC_OCTAHEDRAL, NON3D };
 enum Boundary { FIXED, PERIODIC };

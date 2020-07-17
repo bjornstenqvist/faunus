@@ -11,6 +11,7 @@ set(objs
     ${CMAKE_SOURCE_DIR}/src/chainmove.cpp
     ${CMAKE_SOURCE_DIR}/src/clustermove.cpp
     ${CMAKE_SOURCE_DIR}/src/core.cpp
+    ${CMAKE_SOURCE_DIR}/src/forcemove.cpp
     ${CMAKE_SOURCE_DIR}/src/units.cpp
     ${CMAKE_SOURCE_DIR}/src/analysis.cpp
     ${CMAKE_SOURCE_DIR}/src/atomdata.cpp
@@ -48,6 +49,7 @@ set(hdrs
     ${CMAKE_SOURCE_DIR}/src/chainmove.h
     ${CMAKE_SOURCE_DIR}/src/clustermove.h
     ${CMAKE_SOURCE_DIR}/src/core.h
+    ${CMAKE_SOURCE_DIR}/src/forcemove.h
     ${CMAKE_SOURCE_DIR}/src/energy.h
     ${CMAKE_SOURCE_DIR}/src/externalpotential.h
     ${CMAKE_SOURCE_DIR}/src/geometry.h
@@ -87,7 +89,7 @@ set(tsts
     ${CMAKE_SOURCE_DIR}/src/scatter_test.h
     ${CMAKE_SOURCE_DIR}/src/space_test.h
     ${CMAKE_SOURCE_DIR}/src/tensor_test.h
-    )
+    ${CMAKE_SOURCE_DIR}/src/forcemove_test.h)
 
 # target: functionparser - exprtk very slow, so split out to separate target
 add_library(functionparser STATIC ${CMAKE_SOURCE_DIR}/src/functionparser.cpp ${CMAKE_SOURCE_DIR}/src/functionparser.h)
@@ -111,7 +113,7 @@ if(ENABLE_FREESASA)
 endif()
 
 # target: unittests
-add_executable(unittests unittests.cpp ${tsts})
+add_executable(unittests EXCLUDE_FROM_ALL unittests.cpp ${tsts})
 target_link_libraries(unittests libfaunus)
 target_compile_definitions(unittests PRIVATE SPDLOG_COMPILED_LIB)
 add_test(
@@ -463,10 +465,8 @@ install(FILES
     ${EXAMPLES_DIR}/calciumhydroxide/calciumhydroxide.yml
     ${EXAMPLES_DIR}/calciumhydroxide/calciumhydroxide.out.json
     ${EXAMPLES_DIR}/calciumhydroxide/calciumhydroxide.state.json
-    ${EXAMPLES_DIR}/calciumhydroxide/calciumhydroxide_molecular.yml
-    ${EXAMPLES_DIR}/calciumhydroxide/calciumhydroxide_molecular.out.json
-    ${EXAMPLES_DIR}/calciumhydroxide/calciumhydroxide_molecular.state.json
+    ${EXAMPLES_DIR}/calciumhydroxide_molecular/calciumhydroxide_molecular.yml
+    ${EXAMPLES_DIR}/calciumhydroxide_molecular/calciumhydroxide_molecular.out.json
+    ${EXAMPLES_DIR}/calciumhydroxide_molecular/calciumhydroxide_molecular.state.json
     ${EXAMPLES_DIR}/water/ewald.yml
     DESTINATION share/faunus/examples)
-
-

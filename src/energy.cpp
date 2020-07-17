@@ -344,7 +344,7 @@ double PolicyIonIonEigen::reciprocalEnergy(const EwaldData &d) {
 Ewald::Ewald(const json &j, Space &spc) : data(j), spc(spc) {
     name = "ewald";
     policy = EwaldPolicyBase::makePolicy(data.policy);
-    cite = policy->cite;
+    citation_information = policy->cite;
     init();
 }
 
@@ -356,8 +356,8 @@ void Ewald::init() {
 double Ewald::energy(Change &change) {
     double u = 0;
     if (change) {
-        // If the state is NEW (trial state), then update all k-vectors
-        if (key == NEW) {
+        // If the state is NEW_MONTE_CARLO_STATE (trial state), then update all k-vectors
+        if (key == TRIAL_MONTE_CARLO_STATE) {
             if (change.all or change.dV) { // everything changes
                 policy->updateBox(data, spc.geo.getLength());
                 policy->updateComplex(data, spc.groups); // update all (expensive!)
@@ -376,15 +376,51 @@ double Ewald::energy(Change &change) {
 }
 
 /**
+ * @param forces Destination force vector
+ *
+ * Calculate forces from reciprocal space. Note that
+ * the destination force vector will *not* be zeroed
+ * before addition.
+ */
+void Ewald::force(std::vector<Point> &forces) {
+    assert(forces.size() == spc.p.size());
+    const double volume = spc.geo.getVolume();
+
+    // Surface contribution
+    Point total_dipole_moment = {0.0, 0.0, 0.0};
+    for (auto &particle : spc.p) {
+        auto mu = particle.hasExtension() ? particle.getExt().mu * particle.getExt().mulen : Point(0, 0, 0);
+        total_dipole_moment += particle.pos * particle.charge + mu;
+    }
+
+    auto force = forces.begin(); // iterator to force vector on first particle
+
+    for (auto &particle : spc.p) { // loop over particles
+        (*force) = total_dipole_moment * particle.charge / (2.0 * data.surface_dielectric_constant + 1.0);
+        double mu_scalar = particle.hasExtension() ? particle.getExt().mulen : 0.0;
+        std::complex<double> qmu(mu_scalar, particle.charge);
+        for (size_t i = 0; i < data.k_vectors.cols(); i++) { // loop over k vectors
+            std::complex<double> Q = data.Q_ion[i] + data.Q_dipole[i];
+            double k_dot_r = data.k_vectors.col(i).dot(particle.pos);
+            std::complex<double> expKri(std::cos(k_dot_r), std::sin(k_dot_r));
+            std::complex<double> repart = expKri * qmu * std::conj(Q);
+            (*force) += std::real(repart) * data.k_vectors.col(i) * data.Aks[i];
+        }
+        (*force) *= -4.0 * pc::pi / volume * data.bjerrum_length; // to units of kT/Angstrom^2
+        force++;                                                  // advance to next force vector
+    }
+}
+
+/**
  * @todo Implement a sync() function in EwaldData to selectively copy information
  */
 void Ewald::sync(Energybase *energybase_pointer, Change &change) {
     auto other = dynamic_cast<decltype(this)>(energybase_pointer);
     assert(other);
-    if (other->key == OLD) {
-      old_groups =
-          &(other->spc
-                .groups); // give NEW access to OLD space for optimized updates
+    if (other->key == ACCEPTED_MONTE_CARLO_STATE) {
+        old_groups =
+            &(other->spc
+                  .groups); // give NEW_MONTE_CARLO_STATE access to OLD_MONTE_CARLO_STATE space for optimized updates
     }
 
     // hard-coded sync; should be expanded when dipolar ewald is supported
@@ -449,8 +485,8 @@ double ContainerOverlap::energy(Change &change) {
 
 Isobaric::Isobaric(const json &j, Space &spc) : spc(spc) {
     name = "isobaric";
-    cite = "Frenkel & Smith 2nd Ed (Eq. 5.4.13)";
-    P = j.value("P/mM", 0.0) * 1.0_mM;
+    citation_information = "Frenkel & Smith 2nd Ed (Eq. 5.4.13)";
+    P = j.value("P/mM", 0.0) * 1.0_millimolar;
     if (P < 1e-10) {
         P = j.value("P/Pa", 0.0) * 1.0_Pa;
         if (P < 1e-10)
@@ -476,7 +512,7 @@ double Isobaric::energy(Change &change) {
 }
 void Isobaric::to_json(json &j) const {
     j["P/atm"] = P / 1.0_atm;
-    j["P/mM"] = P / 1.0_mM;
+    j["P/mM"] = P / 1.0_millimolar;
     j["P/Pa"] = P / 1.0_Pa;
     _roundjson(j, 5);
 }
@@ -517,7 +553,7 @@ double Bonded::sum_energy(const Bonded::BondVector &bonds) const {
     double energy = 0;
     for (auto &bond : bonds) {
         assert(bond->hasEnergyFunction());
-        energy += bond->energy(spc.geo.getDistanceFunc());
+        energy += bond->energyFunc(spc.geo.getDistanceFunc());
     }
     return energy;
 }
@@ -528,7 +564,7 @@ double Bonded::sum_energy(const Bonded::BondVector &bonds, const std::vector<int
         for (auto particle_ndx : particles_ndx) {
             if (std::find(bond->index.begin(), bond->index.end(), particle_ndx) != bond->index.end()) {
                 assert(bond->hasEnergyFunction());
-                energy += bond->energy(spc.geo.getDistanceFunc());
+                energy += bond->energyFunc(spc.geo.getDistanceFunc());
                 break; // count each interaction at most once
             }
         }
@@ -589,12 +625,52 @@ double Bonded::energy(Change &change) {
     return energy;
 }
 
+/**
+ * @param forces Target force vector for *all* particles in the system
+ *
+ * Each element in `force` represent the force on a particle and this
+ * updates (add) the bonded force.
+ *
+ * - loop over groups and their internal bonds and _add_ force
+ * - loop over inter-molecular bonds and _add_ force
+ *
+ * Force unit: kT/Å
+ *
+ * @warning Untested
+ */
+void Bonded::force(std::vector<Point> &forces) {
+    auto distance_function = spc.geo.getDistanceFunc();
+    for (auto [group_index, bonds] : intra) {                      // loop over all intra-molecular bonds
+        auto &group = spc.groups[group_index];                     // this is the group we're currently working on
+        for (auto bond : bonds) {                                  // loop over all bonds in group
+            assert(bond->forceFunc != nullptr);                    // the force function must be implemented
+            auto bond_forces = bond->forceFunc(distance_function); // get forces on each atom in bond
+            assert(bond->index.size() == bond_forces.size());
+            for (int i = 0; i < bond->index.size(); i++) { // loop over atom index in bond (relative to group begin)
+                auto absolute_index = std::distance(spc.p.begin(), group.begin()) + bond->index[i];
+                assert(absolute_index < forces.size());
+                forces[absolute_index] += bond_forces[i]; // add to overall force
+            }
+        }
+    }
+
+    for (auto bond : inter) {                                  // loop over inter-molecular bonds
+        assert(bond->forceFunc != nullptr);                    // the force function must be implemented
+        auto bond_forces = bond->forceFunc(distance_function); // get forces on each atom in bond
+        assert(bond_forces.size() == bond->index.size());
+        for (int i = 0; i < bond->index.size(); i++) { // loop over atom index in bond (absolute index)
+            forces[bond->index[i]] += bond_forces[i];  // add to overall force
+        }
+    }
+}
+
 //---------- Hamiltonian ------------
 
 void Hamiltonian::to_json(json &j) const {
     for (auto i : this->vec)
         j.push_back(*i);
 }
+
 void Hamiltonian::addEwald(const json &j, Space &spc) {
     // note this will currently not detect multipolar energies ore
     // deeply nested "coulomb" pair-potentials
@@ -616,6 +692,12 @@ void Hamiltonian::addEwald(const json &j, Space &spc) {
             faunus_logger->debug("adding Ewald reciprocal and surface energy terms");
             emplace_back<Energy::Ewald>(_j, spc);
         }
+    }
+}
+
+void Hamiltonian::force(PointVector &forces) {
+    for (auto energy_ptr : this->vec) { // loop over terms in Hamiltonian
+        energy_ptr->force(forces);      // and update forces
     }
 }
 
@@ -655,13 +737,15 @@ Hamiltonian::Hamiltonian(Space &spc, const json &j) {
                     emplace_back<Energy::NonbondedCached<CoulombLJ>>(it.value(), spc, *this);
 
                 else if (it.key() == "nonbonded_splined")
-                    emplace_back<Energy::Nonbonded<PairingPolicy<PairEnergy<TabulatedPotential, false>, TCutoff, parallel>>>(it.value(), spc, *this);
+                    emplace_back<
+                        Energy::Nonbonded<PairingPolicy<PairEnergy<SplinedPotential, false>, TCutoff, parallel>>>(
+                        it.value(), spc, *this);
 
                 else if (it.key() == "nonbonded" or it.key() == "nonbonded_exact")
                     emplace_back<Energy::Nonbonded<PairingPolicy<PairEnergy<FunctorPotential, true>, TCutoff, parallel>>>(it.value(), spc, *this);
 
                 else if (it.key() == "nonbonded_cached")
-                    emplace_back<Energy::NonbondedCached<TabulatedPotential>>(it.value(), spc, *this);
+                    emplace_back<Energy::NonbondedCached<SplinedPotential>>(it.value(), spc, *this);
 
                 else if (it.key() == "nonbonded_coulombwca")
                     emplace_back<Energy::Nonbonded<PairingPolicy<PairEnergy<CoulombWCA, false>, TCutoff, parallel>>>(it.value(), spc, *this);
@@ -762,7 +846,7 @@ SASAEnergy::SASAEnergy(Space &spc, double cosolute_concentration, double probe_r
     : spc(spc), cosolute_concentration(cosolute_concentration)
 {
     name = "sasa"; // todo predecessor constructor
-    cite = "doi:10.12688/f1000research.7931.1"; // todo predecessor constructor
+    citation_information = "doi:10.12688/f1000research.7931.1"; // todo predecessor constructor
     parameters = freesasa_default_parameters;
     parameters.probe_radius = probe_radius;
     init();
@@ -908,14 +992,21 @@ void from_json(const json &j, GroupCutoff &cutoff) {
 }
 
 void to_json(json &j, const GroupCutoff &cutoff) {
-    j["cutoff_g2g"] = json::object();
-    auto &_j = j["cutoff_g2g"];
+    auto _j = json::object();
     for (auto &a : Faunus::molecules) {
         for (auto &b : Faunus::molecules) {
             if (a.id() >= b.id()) {
-                _j[a.name + " " + b.name] = std::sqrt(cutoff.cutoff_squared(a.id(), b.id()));
+                if (not a.atomic && not b.atomic) {
+                    auto cutoff_squared = cutoff.cutoff_squared(a.id(), b.id());
+                    if (cutoff_squared < pc::max_value) {
+                        _j[a.name + " " + b.name] = std::sqrt(cutoff_squared);
+                    }
+                }
             }
         }
+    }
+    if (not _j.empty()) {
+        j["cutoff_g2g"] = _j;
     }
 }
 

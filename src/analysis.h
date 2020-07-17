@@ -16,7 +16,7 @@ namespace Faunus {
 namespace Energy {
 class Hamiltonian;
 class Energybase;
-}
+} // namespace Energy
 
 namespace Analysis {
 
@@ -31,31 +31,30 @@ namespace Analysis {
  */
 class Analysisbase {
   private:
-    virtual void _to_json(json &) const;
-    virtual void _from_json(const json &);
-    virtual void _sample() = 0;
-    virtual void _to_disk(); //!< save data to disk
-    int stepcnt = 0;
-    int totstepcnt = 0;
-    TimeRelativeOfTotal<std::chrono::microseconds> timer;
+    virtual void _to_json(json &) const;                  //!< provide json information
+    virtual void _from_json(const json &);                //!< setup from json
+    virtual void _sample() = 0;                           //!< perform sample event
+    virtual void _to_disk();                              //!< save sampled data to disk
+    int number_of_steps = 0;                              //!< counter for total number of steps
+    int number_of_skipped_steps = 0;                      //!< steps to skip before sampling (do not modify)
+    TimeRelativeOfTotal<std::chrono::microseconds> timer; //!< time to benchmark `_sample()`
 
   protected:
-    int steps = 0; //!< Sample interval (do not modify)
-    int nskip = 0; //!< MC steps to skip before sampling
-    int cnt = 0;   //!< number of samples
+    int sample_interval = 0;   //!< Steps in between each sample point (do not modify)
+    int number_of_samples = 0; //!< counter for number of samples
 
   public:
-    std::string name; //!< descriptive name
-    std::string cite; //!< url, doi etc. describing the analysis
-
-    void to_json(json &) const;    //!< JSON report w. statistics, output etc.
-    void from_json(const json &);  //!< configure from json object
-    void to_disk();                //!< Save data to disk (if defined)
-    virtual void sample();
+    std::string name;             //!< descriptive name
+    std::string cite;             //!< url, doi etc. describing the analysis
+    void to_json(json &) const;   //!< JSON report w. statistics, output etc.
+    void from_json(const json &); //!< configure from json object
+    void to_disk();               //!< Save data to disk (if defined)
+    void sample();                //!< Increase step count and sample
+    int getNumberOfSteps() const; //!< Number of steps
     virtual ~Analysisbase() = default;
 };
 
-void to_json(json &j, const Analysisbase &base);
+void to_json(json &, const Analysisbase &);
 
 /*
  * @brief Sample and save reaction coordinates to a file
@@ -64,7 +63,7 @@ class FileReactionCoordinate : public Analysisbase {
   private:
     Average<double> avg;
     std::string type, filename;
-    std::ofstream file;
+    std::unique_ptr<std::ostream> stream = nullptr;
     std::shared_ptr<ReactionCoordinate::ReactionCoordinateBase> rc = nullptr;
 
     void _to_json(json &j) const override;
@@ -72,7 +71,7 @@ class FileReactionCoordinate : public Analysisbase {
     void _to_disk() override;
 
   public:
-    FileReactionCoordinate(const json &j, Space &spc);
+    FileReactionCoordinate(const json &, Space &);
 };
 
 /**
@@ -208,14 +207,18 @@ class Multipole : public Analysisbase {
     Multipole(const json &, const Space &);
 }; // Molecular multipoles and their fluctuations
 
+/**
+ * @brief Save system energy to disk
+ */
 class SystemEnergy : public Analysisbase {
-    std::string file, sep = " ";
-    std::ofstream f;
+  private:
+    std::string file_name, separator = " ";
+    std::unique_ptr<std::ostream> output_stream = nullptr;
     std::function<std::vector<double>()> energyFunc;
-    Average<double> uavg, u2avg; //!< mean energy and mean squared energy
-    std::vector<std::string> names;
-    Table2D<double, double> ehist; // Density histograms
-    double uinit;
+    Average<double> mean_energy, mean_squared_energy;
+    std::vector<std::string> names_of_energy_terms;
+    Table2D<double, double> energy_histogram; // Density histograms
+    double initial_energy = 0.0;
 
     void normalize();
     void _sample() override;
@@ -225,7 +228,7 @@ class SystemEnergy : public Analysisbase {
 
   public:
     SystemEnergy(const json &, Energy::Hamiltonian &);
-}; //!< Save system energy to disk. Keywords: `nstep`, `file`.
+};
 
 /**
  * @brief Checks if system is sane. If not, abort program.
@@ -239,17 +242,30 @@ class SanityCheck : public Analysisbase {
     SanityCheck(const json &, Space &);
 };
 
+/**
+ * @brief Save simulation state and particle coordinates to disk
+ *
+ * Using a variety of formats (pqr, gro, xyz, aam, state) this
+ * stores the simulation state to disk. The most complete format
+ * is `.state` which stores information about groups, particle
+ * positions, random number state etc.
+ *
+ * - if sample interval = -1, analysis is run only once at the simulation end.
+ * - if sample interval >= 0, analysis is performed as every nstep.
+ * - if `use_numbered_files` = true (default) files are labelled with the step count
+ */
 class SaveState : public Analysisbase {
   private:
-    std::function<void(std::string)> writeFunc = nullptr;
-    std::string file;
-    bool saverandom;
+    std::function<void(const std::string &)> writeFunc = nullptr;
+    bool save_random_number_generator_state = false;
+    bool use_numbered_files = true;
+    std::string filename;
     void _to_json(json &) const override;
-    void _to_disk() override;
     void _sample() override;
 
   public:
-    SaveState(const json &, Space &);
+    SaveState(json, Space &);
+    ~SaveState();
 };
 
 /**
@@ -338,18 +354,18 @@ class XTCtraj : public Analysisbase {
  * @brief Excess pressure using virtual volume move
  */
 class VirtualVolume : public Analysisbase {
-    std::string file; // output filename
-    std::ofstream output_file; // output filestream
-    double dV; // volume perturbation
-    Change c;
+    Space spc;
+    Geometry::VolumeMethod volume_scaling_method = Geometry::ISOTROPIC;
+    std::string filename;                                  // output filename (optional)
+    std::unique_ptr<std::ostream> output_stream = nullptr; // output file stream
+    double dV;                                             // volume perturbation
+    Change change;
     Energy::Energybase &pot;
-    std::function<double()> getVolume;
-    std::function<void(double)> scaleVolume;
-    Average<double> duexp; // < exp(-du/kT) >
+    Average<double> mean_exponentiated_energy_change; // < exp(-du/kT) >
 
     void _sample() override;
-    void _from_json(const json &j) override;
-    void _to_json(json &j) const override;
+    void _from_json(const json &) override;
+    void _to_json(json &) const override;
     void _to_disk() override;
 
   public:

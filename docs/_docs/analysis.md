@@ -13,7 +13,7 @@ at the top level input:
 
 ~~~ yaml
 analysis:
-    - systemenergy: {file: energy.dat, nstep: 500, nskip: 2000}
+    - systemenergy: {file: energy.dat.gz, nstep: 500, nskip: 2000}
     - xtcfile: {file: traj.xtc, nstep: 1000}
     - widom:  {molecule: water, ninsert: 20, nstep: 50}
     - molrdf: {name1: water, name2: water, nstep: 100,
@@ -95,7 +95,7 @@ $$
     g_{ij}(r) = \frac{ N_{ij}(r) }{ \sum_{r=0}^{\infty} N_{ij}(r) } \cdot \frac{ \langle V \rangle }{ V(r) }
 $$
 
-where $N_{ij}(r)$ is the number of observed pairs, accumulated over the
+where $N\_{ij}(r)$ is the number of observed pairs, accumulated over the
 entire ensemble, in the separation
 interval $[r, r+dr]$ and $V(r)$ is the corresponding volume element
 which depends on dimensionality, `dim`.
@@ -335,7 +335,7 @@ $$
 
 
 During simulation, the above terms are thermally averaged over angles, co-solute degrees of freedom etc.
-Note also that the moments are defined with respect to the *mass* center, not *charge* center.
+Note also that the moments are defined with respect to the _mass_ center, not _charge_ center.
 While for globular macromolecules the difference between the two is often small,
 the latter is more appropriate and is planned for a future update.
 
@@ -366,45 +366,53 @@ atomic species can be saved.
 
 ## Reaction Coordinate
 
-This saves a given reaction coordinate (see Penalty Function in Energy) as a function of steps.
-The output file has three columns with steps; the value of the reaction coordinate; and
-the cummulative average of all preceding values.
+This saves a given [reaction coordinate](energy.html#reaction-coordinates)
+as a function of steps. The generated output `file` has three columns:
 
-The folowing example prints the mass center $z$ coordinate of the first molecule
-to disk every 100th steps:
+1. step number
+2. the value of the reaction coordinate
+3. the cummulative average of all preceding values.
+
+Optional [gzip compression](https://en.wikipedia.org/wiki/Gzip)
+can be enabled by suffixing the filename with `.gz`, thereby reducing the output file size significantly.
+The folowing example reports the mass center $z$ coordinate of the first molecule every 100th steps:
 
 ~~~ yaml
 - reactioncoordinate:
-    {nstep: 100, file: cmz.dat, type: molecule, index: 0, property: com_z}
+    {nstep: 100, file: cmz.dat.gz, type: molecule, index: 0, property: com_z}
 ~~~ 
 
-In the next example, the Angle between the principal molecular axis and the $xy$-plane
+In the next example, the angle between the principal molecular axis and the $xy$-plane
 is reported by diagonalising the gyration tensor to find the principal moments:
 
 ~~~ yaml
 - reactioncoordinate:
-    {nstep: 100, file: angle.dat, type: molecule, index: 0, property: angle, dir: [0,0,1]}
+    {nstep: 100, file: angle.dat.gz, type: molecule, index: 0, property: angle, dir: [0,0,1]}
 ~~~ 
 
 ### Processing
 
-In the example above we saved two properties as a function of steps. To join the two
-files and generate the average angle as a function of _z_, the following python code
-may be used:
+In the above examples we stored two properties as a function of steps. To join the two
+files and calculate the _average angle_ as a function of the mass center coordinate, _z_,
+the following python code may be used:
 
 ~~~ python
 import numpy as np
 from scipy.stats import binned_statistic
 
-def joinRC(xfile, yfile, bins):
-    x = np.loadtxt(xfile, usecols=[1])
-    y = np.loadtxt(yfile, usecols=[1])
-    means, edges, bins = binned_statistic(x,y,'mean',bins)
+def joinRC(filename1, filename2, bins):
+    x = np.loadtxt(filename1, usecols=[1])
+    y = np.loadtxt(filename2, usecols=[1])
+    means, edges, bins = binned_statistic(x, y, 'mean', bins)
     return (edges[:-1] + edges[1:]) / 2, means
 
-cmz, angle = joinRC('cmz.dat', 'angle.dat', 100)
+cmz, angle = joinRC('cmz.dat.gz', 'angle.dat.gz', 100)
 np.diff(cmz) # --> cmz resolution; control w. `bins`
 ~~~
+
+Note that Numpy automatically detects and decompresses `.gz` files.
+Further, the command line tools `zcat`, `zless` etc. are useful for handling
+compressed files.
 
 
 ## System Sanity
@@ -428,12 +436,14 @@ Calculates the energy contributions from all terms in the Hamiltonian and
 outputs to a file as a function of steps.
 If filename ends with `.csv`, a comma separated value file will be saved,
 otherwise a simple space separated file with a single hash commented header line.
-All units in $k_BT$.
+To enable GZip compression, suffix the filename with `.gz`.
+All units in $k\_BT$.
 
-`systemenergy`   |  Description
----------------- |  -------------------------------------------
-`file`           |  Output filename for energy vs. step output
-`nstep=0`        |  Interval between samples
+`systemenergy` | Description
+-------------- | -------------------------------------------
+`file`         | Output filename (`.dat`, `.csv`, `.dat.gz`)
+`nstep`        | Interval between samples
+
 
 ## Perturbations
 
@@ -448,14 +458,21 @@ $$
     p^{ex} = \frac{k_BT}{\Delta V} \ln \left\langle e^{-\delta u / k_BT} \right\rangle_{NVT}
 $$
 
-For more advanced applications of volume perturbations - pressure tensors,
-surface tension etc., see [here](http://doi.org/ckfh).
+If `file` is given, the pressure as a function of steps is written to a (compressed) file.
 
-`virtualvolume` | Description
---------------- | -------------------------------------
-`dV`            | Volume perturbation (Å³)
-`nstep`         | Interval between samples
-`file`          | Optional output filename for writing data as a function of steps
+`virtualvolume`     | Description
+------------------- | -------------------------------------
+`dV`                | Volume perturbation (Å³)
+`nstep`             | Interval between samples
+`file`              | Optional output filename (`.dat`, `.dat.gz`)
+`scaling=isotropic` | Volume scaling method (`isotropic`, `xy`, `z`)
+
+By default, the volume is isotropically scaled, but for more advanced applications of
+volume perturbations - pressure tensors, surface tension etc., see [here](http://doi.org/ckfh).
+If a non-isotropic scaling is used, an extra column will be added to the output
+`file` containing the change in area (`xy`) or length (`z`).
+See also the documentation for the Monte Carlo _Volume move_.
+
 
 ### Virtual Translate Move
 
@@ -515,11 +532,13 @@ keyword when inserting the initial molecules in the [topology](topology).
 ------------------ | ------------------------------------------------------------------------------------------
 `file`             |  File to save; format detected by file extension: `pqr`, `aam`, `gro`, `xyz`, `json`/`ubj`
 `saverandom=false` |  Save the state of the random number generator
-`nstep=-1`         |  Interval between samples. If -1, save at end of simulation
+`nstep=-1`         |  Interval between samples; if -1 save at end of simulation
 
-Saves the current configuration or the system state to file.
+Saves the current configuration or the system state to file. For grand canonical
+simulations, the PQR file format sets charges and radii of inactive particles to zero
+and positions them in one corner of the box.
 
-If the suffix is `json` (text) or `ubj` ([binary](http://ubjson.org)), a single 
+If the suffix is `json` or `ubj` ([binary](http://ubjson.org)), a single 
 state file that can be used to restart the simulation is saved
 with the following information:
 
@@ -527,6 +546,9 @@ with the following information:
 - particle and group properties incl. positions
 - geometry
 - state of random number generator (if `saverandom=true`)
+
+If `nstep` is greater than zero, the output filename will be tagged
+with the current step count.
 
 
 ### Space Trajectory (experimental)

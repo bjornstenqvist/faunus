@@ -1,9 +1,8 @@
 #pragma once
-
 #include "core.h"
 #include "units.h"
 #include "particle.h"
-#include "auxiliary.h"
+#include "aux/pairmatrix.h"
 #include "tabulate.h"
 #include "functionparser.h"
 #include "multipole.h"
@@ -274,8 +273,7 @@ class WeeksChandlerAndersen : public LennardJones {
 
   public:
     WeeksChandlerAndersen(const std::string &name = "wca", const std::string &cite = "doi:ct4kh9",
-                          CombinationRuleType combination_rule = COMB_LORENTZ_BERTHELOT)
-        : LennardJones(name, cite, combination_rule) {};
+                          CombinationRuleType combination_rule = COMB_LORENTZ_BERTHELOT);
 
     inline double operator()(const Particle &a, const Particle &b, double r2, const Point &) const override {
         return operator()(a, b, r2);
@@ -568,13 +566,14 @@ class NewCoulombGalore : public PairPotentialBase {
   public:
     NewCoulombGalore(const std::string & = "coulomb");
     inline double operator()(const Particle &a, const Particle &b, double r2, const Point &) const override {
-        return lB * pot.ion_ion_energy(a.charge, b.charge, sqrt(r2) + std::numeric_limits<double>::epsilon());
+        return bjerrum_length *
+               pot.ion_ion_energy(a.charge, b.charge, sqrt(r2) + std::numeric_limits<double>::epsilon());
     }
     Point force(const Particle &, const Particle &, double, const Point &) const override;
     void from_json(const json &) override;
     void to_json(json &) const override;
     double dielectric_constant(double M2V) { return pot.calc_dielectric(M2V); }
-    double lB; // Bjerrum length (angstrom)
+    double bjerrum_length; // Bjerrum length (angstrom)
 };
 
 /**
@@ -592,7 +591,7 @@ class Multipole : public NewCoulombGalore {
         Point mua = a.getExt().mu * a.getExt().mulen;
         Point mub = b.getExt().mu * b.getExt().mulen;
         double dipdip = pot.dipole_dipole_energy(mua, mub, r);
-        return lB * (dipdip);
+        return bjerrum_length * (dipdip);
     }
 
     Point force(const Particle &, const Particle &, double, const Point &) const override;

@@ -191,7 +191,7 @@ S(q) = \frac{1}{N} \left <
 $$
 
 The sampled $q$-interval is always $\left [ 2\pi/L,\, 2\pi p\_{max} \sqrt{3} / L \right ]$,
-$L$ being the box side length. Currently only cubic boxes are supported.
+$L$ being the box side length. Only cubic boxes have been tested, but the implementation respects cuboidal systems (untested).
 For more information, see [doi:10.1063/1.449987](http://dx.doi.org/10.1063/1.449987).
 
 
@@ -237,13 +237,36 @@ $\bf{I}$ is the identity matrix and $N$ is the number of atoms.
 
 ### Polymer Shape
 
-This calculates the radius of gyration, end-to-end distance, and related
-fluctuations for all groups defined in `molecules`.
+This calculates the radius of gyration; end-to-end distance; and related
+fluctuations for a molecular group. A histogram of the radius of gyration will
+be saved to disk with the name `gyration_{molecule}.dat`.
+The output nomenclature follows [IUPAC's recommendations](https://dx.doi.org/10/d6ff).
+For further reading regarding gyration tensor analysis and shape, see:
 
-`polymershape`   | Description
----------------- | ----------------------------------------
-`nstep`          | Interval with which to sample
-`molecules`      | List of molecule names to sample (array); `[*]` selects all
+- [doi:10.1021/ma00148a028](https://doi.org/10.1021/ma00148a028)
+- [doi:10.1063/1.1730022](https://doi.org/10.1063/1.1730022)
+
+`polymershape`             | Description
+-------------------------- | ----------------------------------------
+`nstep`                    | Interval with which to sample
+`molecule`                 | Molecule to sample
+`histogram_resolution=0.2` | Rg resolution of histogram (Å)
+`file`                     | Optionally save gyration tensor for each sample (.dat|.dat.gz)
+
+Note: The ability to select several molecules (`molecules` keyword) was
+removed in version 2.5. Instead, add multiple instances of `polymershape`.
+
+
+### Molecular Conformation
+
+For molecules that can have multiple conformations (using conformational swap moves), this
+creates a histogram of observed conformations for a given molecule type.
+
+`moleculeconformation` |  Description
+---------------------- | -----------------
+`nstep`                | Interval with which to sample
+`molecule`             | Molecule name to sample
+
 
 ## Charge Properties
 
@@ -600,7 +623,6 @@ vmd confout.pqr traj.xtc -e scripts/vmd-qrtraj.tcl
 ~~~
 
 `qrfile`          |  Description
------------------ | ---------------------------------------------------------
-`file=qrtraj.dat` |  Filename of output file
-`nstep`           |  Interval between samples.
-
+----------------- | -----------------------------------
+`file=qrtraj.dat` |  Output filename (.dat, .gz)
+`nstep`           |  Interval between samples

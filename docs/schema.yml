@@ -69,7 +69,7 @@ properties:
                 properties:
                     N: {type: integer, description: Number of molecules to insert}
                     molarity: {type: number, description: Insert molecules to reach this molarity}
-                    inactive: {type: boolean, default: false, description: Should molecules be inactive?}
+                    inactive: {type: [boolean, integer], description: Number of inserted molecules to deactivate}
                     positions: {type: string, description: Load positions from file}
                 oneOf:
                     - required: [N]
@@ -163,7 +163,7 @@ properties:
                         description: Structure file or direct information; required if `atomic=false`
                         anyOf:
                             - type: string
-                              pattern: "(.*?)\\.(pqr|aam|xyz)$"
+                              pattern: "(.*?)\\.(pqr|aam|xyz|gro)$"
                             - type: array
                               items:
                                   type: object
@@ -251,8 +251,8 @@ properties:
                   then:
                       properties:
                           debyelength: {type: number, description: Debye screening length (Å)}
-                          shift: {type: boolean, description: Shift to zero at cutoff, default: true}
-                      required: [cutoff, debyelength]
+                          shift: {type: boolean, description: Zero potential and force at cutoff, default: false}
+                      required: [debyelength]
                       
         electrolyte:
             type: object
@@ -472,7 +472,7 @@ properties:
                     description: "Manybody solvent accessible surface area"
                     type: object
                     properties:
-                        radius: {type: number, default: 1.4, description: Probe radius for SASA calculation (Å)}
+                        radius: {type: number, default: 1.4, description: Probe radius for SASA calculation (Å)}
                         molarity: {type: number, description: Molar concentration of co-solute}
                     required: [molarity]
                     additionalProperties: false
@@ -695,7 +695,7 @@ properties:
                         dprot: {type: number}
                         molecule: {type: string}
                         joint_max: {type: integer}
-                        repeat: {type: integer}
+                        repeat: {type: [integer, string]}
                     required: [dprot, molecule]
                     additionalProperties: false
                     type: object
@@ -784,6 +784,21 @@ properties:
                     required: [file, name1, name2, nstep]
                     additionalProperties: false
 
+                langevin_dynamics:
+                    description: "Run Langevin Dynamics (LD) with BAOAB splitting"
+                    type: object
+                    properties:
+                        nsteps: {type: integer, description: "Number of LD steps to perform"}
+                        integrator:
+                            type: object
+                            properties:
+                                time_step: {type: number, description: "Time interval between steps (ps)"}
+                                friction: {type: number, description: "Friction coefficient"}
+                            required: [time_step, friction]
+                            additionalProperties: false
+                    required: [nsteps, integrator]
+                    additionalProperties: false
+
                 atomprofile:
                     description: Summed density of atoms in spherical, cylindrical or planar shells
                     type: object
@@ -803,18 +818,19 @@ properties:
                     properties:
                         nstep: {type: integer}
                         nskip: {type: integer, default: 0, description: Initial steps to skip}
-                        required: [nstep]
-                        additionalProperties: false
-                        type: object
+                    required: [nstep]
+                    type: object
+                    additionalProperties: false
 
                 polymershape:
                     properties:
-                        molecules:
-                            minItems: 1
-                            items: {type: string}
-                            type: array
                         nstep: {type: integer}
-                    required: [molecules, nstep]
+                        nskip: {type: integer, default: 0, description: Initial steps to skip}
+                        molecule: {type: string}
+                        histogram_resolution: {type: number, default: 0.2, description: "Distance spacing for Rg histogram (Å)"}
+                        file: {type: string, description: "Name of file with gyration tensor for each sample (.dat|.dat.gz)"}
+                    required: [molecule, nstep]
+                    additionalProperties: false
                     type: object
 
                 multipoledist:
@@ -830,6 +846,16 @@ properties:
                         nskip: {type: integer, default: 0, description: "Initial steps to skip"}
                         dr: {type: number, description: "Distance resolution along R (Å)"}
                     required: [molecules, nstep, dr]
+
+                chargefluctuations:
+                    type: object
+                    properties:
+                        nstep: {type: integer, description: "Interval between samples"}
+                        nskip: {type: integer, default: 0, description: "Number of initial steps excluded from the analysis"}
+                        molecule: {type: string, description: "Name of molecular group to sample"}
+                        pqrfile: {type: string, description: "Output PQR file"}
+                        verbose: {type: boolean, default: true, description: "If True, add results to general output"}
+                    required: [nstep, molecule]
 
                 reactioncoordinate:
                     type: object
@@ -885,14 +911,15 @@ properties:
                             items: {type: string}
                             minItems: 1
                             type: array
-                        qmin: {type: number, description: Minimum q value (1/Å)}
-                        qmax: {type: number, description: Maximum q value (1/Å)}
+                        qmin: {type: number, description: Minimum q value (1/Å)}
+                        qmax: {type: number, description: Maximum q value (1/Å)}
                         dq: {type: number, description: q spacing (1/Å)}
                         com: {type: boolean, default: true, description: Treat molecular mass centers as single point scatterers}
                         pmax: {type: integer, default: 15, description: Multiples of (h,k,l) when using the explicit scheme}
                         scheme:
                             description: Scattering method
                             enum: [debye, explicit]
+                        ipbc: {type: boolean, default: false}
                         file: {type: string, description: Output file for S(q)}
                         stepsave: {type: boolean, default: false, description: Save every sample to disk}
                         required: [nstep, molecules, scheme]
@@ -934,6 +961,15 @@ properties:
                     required: [file, nstep]
                     additionalProperties: false
                     type: object
+
+                moleculeconformation:
+                    description: "Conformation ID histogram"
+                    properties:
+                        molecule: {type: string, description: "Molecule name to sample"}
+                        nstep: {type: integer, description: Interval between samples}
+                        nskip: {type: integer, default: 0, description: Number of steps to initially skip}
+                    required: [molecule]
+                    additionalProperties: false
 
                 virtualvolume:
                     description: "Virtual volume move"
@@ -984,6 +1020,16 @@ properties:
                             description: Insertion positions are scaled by this
                     required: [ninsert, molecule, nstep]
                     additionalProperties: false
+
+                qrfile:
+                    description: "Write trajectory with charges and radii"
+                    properties:
+                        file: {type: string, pattern: "(.*?)\\.(dat|gz)$", default: "qrtraj.dat", description: "Output file (.dat, .gz)"}
+                        nstep: {type: integer, description: "Interval between samples"}
+                        nskip: {type: integer, default: 0, description: "Initial steps to skip"}
+                    required: [nstep]
+                    additionalProperties: false
+                    type: object
 
                 xtcfile:
                     description: "Write Gromacs XTC trajectory"

@@ -4,7 +4,9 @@
 #include "io.h"
 #include "scatter.h"
 #include "reactioncoordinate.h"
-#include "auxiliary.h"
+#include "aux/timers.h"
+#include "aux/table_2d.h"
+#include "aux/equidistant_table.h"
 #include <set>
 
 namespace cereal {
@@ -76,24 +78,28 @@ class FileReactionCoordinate : public Analysisbase {
 
 /**
  * @brief Excess chemical potential of molecules
+ *
+ * @todo While `inserter` is currently limited to random
+ * insertion, the code is designed for arbitrary insertion
+ * schemes inheriting from `MoleculeInserter`.
  */
 class WidomInsertion : public Analysisbase {
-    Space &spc;
-    Energy::Hamiltonian *pot;
-    RandomInserter rins;
-    std::string molname; // molecule name
-    int ninsert;
-    int molid; // molecule id
-    bool absolute_z = false;
-    Average<double> expu;
+    Space &space;
+    Energy::Hamiltonian &hamiltonian;           //!< Potential energy method
+    std::shared_ptr<MoleculeInserter> inserter; //!< Insertion method
+    int number_of_insertions;                   //!< Number of insertions per sample event
+    int molid;                                  //!< Molecule id
+    bool absolute_z_coords = false;             //!< Apply abs() on all inserted z coordinates?
+    Average<double> exponential_average;        //!< Widom average, <exp(-dU/kT)>
     Change change;
 
-    void _sample() override;
-    void _to_json(json &j) const override;
-    void _from_json(const json &j) override;
+    void selectGhostGroup(); //!< Select inactive group to act as group particle
+    void _sample() override; //!< Called for each sample event
+    void _to_json(json &) const override;
+    void _from_json(const json &) override;
 
   public:
-    WidomInsertion(const json &j, Space &spc, Energy::Hamiltonian &pot);
+    WidomInsertion(const json &, Space &, Energy::Hamiltonian &);
 };
 
 /**
@@ -193,19 +199,24 @@ class ChargeFluctuations : public Analysisbase {
     ChargeFluctuations(const json &j, Space &spc);
 }; // Fluctuations of atomic charges
 
+/**
+ * @brief Molecular multipole moments and their fluctuations
+ */
 class Multipole : public Analysisbase {
     const Space &spc;
-    struct data {
-        Average<double> Z, Z2, mu, mu2;
-    };
-    std::map<int, data> _map; //!< Molecular moments and their fluctuations
-
+    struct Data {
+        Average<double> charge;
+        Average<double> charge_squared;
+        Average<double> dipole_moment;
+        Average<double> dipole_moment_squared;
+    };                                   // Average sample moment for a molecule
+    std::map<int, Data> average_moments; //!< Molecular moments and their fluctuations. Key = molid.
     void _sample() override;
     void _to_json(json &) const override;
 
   public:
     Multipole(const json &, const Space &);
-}; // Molecular multipoles and their fluctuations
+};
 
 /**
  * @brief Save system energy to disk
@@ -373,6 +384,20 @@ class VirtualVolume : public Analysisbase {
 };
 
 /**
+ * @brief Create histogram of molecule conformation id
+ */
+class MolecularConformationID : public Analysisbase {
+    Space &spc;
+    int molid;                             //!< molecule id to sample
+    std::map<int, unsigned int> histogram; //!< key is conformation id; value is count
+    void _sample() override;
+    void _to_json(json &j) const override;
+
+  public:
+    MolecularConformationID(const json &j, Space &spc);
+};
+
+/**
  * @brief Virtual translation move to calculate force
  *
  * Displace a single molecule of `molid` with `dL` in the
@@ -527,42 +552,58 @@ class MultipoleMoments : public Analysisbase {
 };
 
 /**
- * @brief Analysis of polymer shape - radius of gyration, shape factor etc.
+ * @brief Analysis of polymer shape - radius of gyration, shape etc.
  * @date November, 2011
  *
- * This will analyse polymer groups and calculate Rg, Re and the shape factor. If
- * sample() is called with different groups these will be distinguished by their
- * *name* and sampled individually.
+ * The analysis includes:
+ * - gyration tensor and radius of gyration
+ * - histogram of Rg
+ * - end-to-end distance
+ * - shape anisotropy
  */
 class PolymerShape : public Analysisbase {
+    struct AverageData {
+        using average_type = Average<double>;
+        average_type gyration_radius_squared;
+        average_type gyration_radius;
+        average_type end_to_end_squared;
+        average_type shape_factor_squared;
+        average_type aspherity;
+        average_type acylindricity;
+        average_type relative_shape_anisotropy;
+    };                //!< Placeholder class for average polymer properties
+    AverageData data; //!< Stores all averages
+    Equidistant2DTable<double, unsigned int> gyration_radius_histogram;
+    int molid; //!< Molecule id to analyse
     Space &spc;
-    std::map<int, Average<double>> Rg2, Rg, Re2, Re, Rs, Rs2, Rg2x, Rg2y, Rg2z;
-    std::vector<int> ids; // molecule id's to analyse
+    std::unique_ptr<std::ostream> tensor_output_stream = nullptr; //!< Output file for tensor
 
     void _to_json(json &j) const override;
-    Point vectorgyrationRadiusSquared(typename Space::Tgroup &g) const;
     void _sample() override;
+    void _to_disk() override;
 
   public:
     PolymerShape(const json &j, Space &spc);
 };
 
 /**
- * @brief "Trajectory" with charge and radius, only, for all (active, inactive) particles
+ * @brief Trajectory with charge and radius, only, for all (active, inactive) particles
  *
- * For use w. VMD to visualize charge fluctuations and grand canonical ensembles
+ * For use with VMD to visualize charge fluctuations and grand canonical ensembles. Inactive
+ * particles have zero charge and radius. If the `filename` ends with `.gz` a GZip compressed
+ * file is created.
  */
 class QRtraj : public Analysisbase {
   private:
-    std::string file;
-    std::ofstream f;
-    std::function<void()> write_to_file;
-    void _sample() override;
+    std::string filename;                           //!< Output filename
+    std::unique_ptr<std::ostream> stream = nullptr; //!< Output stream
+    std::function<void()> write_to_file;            //!< Write a single frame to stream
+    void _sample() override;                        //!< Samples one frame and outputs to stream
     void _to_json(json &j) const override;
     void _to_disk() override;
 
   public:
-    QRtraj(const json &j, Space &spc);
+    QRtraj(const json &, Space &spc);
 };
 
 /**

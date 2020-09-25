@@ -4,8 +4,8 @@
 #include "mpicontroller.h"
 #include "molecule.h"
 #include "geometry.h"
-#include "auxiliary.h"
 #include "space.h"
+#include "aux/timers.h"
 
 namespace Faunus {
 
@@ -40,8 +40,8 @@ class Movebase {
     void move(Change &);        //!< Perform move and modify given change object
     void accept(Change &);
     void reject(Change &);
-    virtual double bias(Change &, double,
-                        double); //!< adds extra energy change not captured by the Hamiltonian
+    virtual double bias(Change &, double old_energy,
+                        double new_energy); //!< adds extra energy change not captured by the Hamiltonian
     inline virtual ~Movebase() = default;
 };
 
@@ -174,27 +174,6 @@ class TranslateRotate : public Movebase {
   public:
     TranslateRotate(Space &spc);
 };
-
-#ifdef DOCTEST_LIBRARY_INCLUDED
-TEST_CASE("[Faunus] TranslateRotate") {
-    typedef typename Space::Tpvec Tpvec;
-
-    CHECK(!atoms.empty());     // set in a previous test
-    CHECK(!molecules.empty()); // set in a previous test
-
-    Space spc;
-    TranslateRotate mv(spc);
-    json j = R"( {"molecule":"A", "dp":1.0, "dprot":0.5, "dir":[0,1,0], "repeat":2 })"_json;
-    mv.from_json(j);
-
-    j = json(mv).at(mv.name);
-    CHECK(j.at("molecule") == "A");
-    CHECK(j.at("dir") == Point(0, 1, 0));
-    CHECK(j.at("dp") == 1.0);
-    CHECK(j.at("repeat") == 2);
-    CHECK(j.at("dprot") == 0.5);
-}
-#endif
 
 /**
  * @brief Move that preferentially displaces molecules within a specified region around a specified atom type

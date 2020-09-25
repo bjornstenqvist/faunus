@@ -45,22 +45,6 @@ namespace Faunus {
     //! Calculate the Debye screening length for a binary salt
     double debyeLength(double, const std::array<int, 2> &, double);
 
-#ifdef DOCTEST_LIBRARY_INCLUDED
-    TEST_CASE("[Faunus] ionicStrength") {
-        using doctest::Approx;
-        CHECK(ionicStrength(0.1, {1, 1}) == Approx(0.1));
-        CHECK(ionicStrength(0.1, {2, 2}) == Approx(0.5 * (0.1 * 4 + 0.1 * 4)));
-        CHECK(ionicStrength(0.1, {2, 1}) == Approx(0.5 * (0.1 * 4 + 0.2)));
-        CHECK(ionicStrength(0.1, {1, 2}) == Approx(0.5 * (0.2 + 0.1 * 4)));
-        CHECK(ionicStrength(0.1, {1, 3}) == Approx(0.5 * (0.3 + 0.1 * 9)));
-        CHECK(ionicStrength(0.1, {3, 1}) == Approx(0.5 * (0.3 + 0.1 * 9)));
-        CHECK(ionicStrength(0.1, {1, 3}) == Approx(0.5 * (0.3 + 0.1 * 9)));
-        CHECK(ionicStrength(0.1, {2, 3}) == Approx(0.5 * (0.3 * 4 + 0.2 * 9)));
-
-        SUBCASE("debyeLength") { CHECK(debyeLength(0.03, {1, 1}, 7) == Approx(17.7376102214)); }
-    }
-#endif
-
     /**
      * @brief Chemistry units
      *
@@ -82,71 +66,75 @@ namespace Faunus {
      * The value of pressure in particle densities assumes the ideal gas law.
      */
     namespace ChemistryUnits {
-        typedef long double T; //!< floating point size
-        constexpr T operator"" _rad(T a) { return a; }                  //!< angle in radians
-        constexpr T operator"" _deg(T a) { return a * pc::pi / 180; }   //!< angle in degrees (to radians)
-        constexpr T operator"" _K(T temp) { return temp; }              //!< temperature in kelvins
-        constexpr T operator"" _C(T temp) { return 273.15 + temp; }     //!< temperature in degrees Celcius (to kelvins)
-        constexpr T operator"" _ps(T tau) { return tau; }               //!< time in picoseconds
-        constexpr T operator"" _s(T tau) { return tau * 1e12; }         //!< time in seconds (to picoseconds)
-        constexpr T operator"" _angstrom(T l) { return l; }             //!< length in ångströms
-        constexpr T operator"" _nm(T l) { return l * 10; }              //!< length in nanometers (to ångströms)
-        constexpr T operator"" _m(T l) { return l * 1e10; }             //!< length in meters (to ångströms)
-        constexpr T operator"" _bohr(T l) { return l * 0.52917721092; } //!< length in Bohr radii (to ångströms)
-        constexpr T operator"" _angstrom3(T l) { return l; }            //!< volume in cubic ångströms
-        constexpr T operator"" _m3(T v) { return v * 1e30; }            //!< volume in cubic meters (to cubic ångströms)
-        constexpr T operator"" _liter(T v) { return v * 1e27; }         //!< volume in liters (to cubic ångströms)
-        constexpr T operator"" _gmol(T m) { return m; }                 //!< mass in grams per mole
-        constexpr T operator"" _kg(T m) { return m * 1e3 * pc::Nav; }   //!< mass in kilograms per particle (to grams per mole)
-        constexpr T operator"" _Da(T m) { return m; }                   //!< mass in daltons per particle (to grams per mole)
-        //! amount of substance in moles (to number of particles)
-        constexpr T operator"" _mol(T n) { return n * pc::Nav; }
-        //! molar concentration (to particle density in number of particles per cubic ångström)
-        constexpr T operator"" _molar(T c) { return c * 1.0_mol / 1.0_liter; }
-        //! millimolar concentration (to particle density in number of particles per cubic ångström)
-        constexpr T operator"" _millimolar(T c) { return c * 1.0e-3_mol / 1.0_liter; }
-        //! pressure in pascals (to particle density in number of particles per cubic ångström – assuming the ideal gas law)
-        inline T operator"" _Pa(T p) { return p / pc::kT() / 1.0_m3; }
-        //! pressure in atmospheres (to particle density in number of particles per cubic ångström – assuming the ideal gas law)
-        inline T operator"" _atm(T p) { return p * 101325.0_Pa; }
-        //! pressure in bars (to particle density in number of particles per cubic ångström – assuming the ideal gas law)
-        inline T operator"" _bar(T p) { return p * 100000.0_Pa; }
-        //! dipole moment in electron—ångströms
-        constexpr T operator"" _eA(T mu) { return mu; }
-        //! dipole moment in debyes (to electron-ångströms)
-        constexpr T operator"" _debye(T mu) { return mu * 0.208194334424626; }
-        //! dipole moment in coulomb-meters (to electron ångströms)
-        constexpr T operator"" _Cm(T mu) { return mu * 1.0_debye / 3.335640951981520e-30; }
-        //! energy in thermal energy units kT
-        constexpr T operator"" _kT(T u) { return u; }
-        //! energy in joules (to thermal energy units kT)
-        inline T operator"" _J(T u) { return u / pc::kT(); }
-        //! energy in hartrees (to thermal energy units kT)
-        inline T operator"" _hartree(T u) { return u * 4.35974434e-18_J; }
-        //! energy in kilojoules per mole (to thermal energy units kT per particle)
-        inline T operator"" _kJmol(T u) { return u / pc::kT() / pc::Nav * 1e3; }
-        //! energy in kilocalories per mole (to thermal energy units kT per particle)
-        inline T operator"" _kcalmol(T u) { return u * 4.1868_kJmol; }
-   }  // namespace ChemistryUnits
-    using namespace ChemistryUnits;
 
-#ifdef DOCTEST_LIBRARY_INCLUDED
-    TEST_CASE("[Faunus] Units and string literals")
-    {
-        using doctest::Approx;
-        pc::temperature = 298.15_K;
-        CHECK( 1.0e-10_m == 1 );
-        CHECK( (1/1.0_debye) == Approx(4.8032) );
-        CHECK( 1.0_debye == Approx( 3.33564e-30_Cm ) );
-        CHECK( 1.0_debye == Approx( 0.20819434_eA ) );
-        CHECK( 360.0_deg == Approx( 2*std::acos(-1) ) );
-        CHECK( (1.0_mol / 1.0_liter) == Approx( 1.0_molar ) );
-        CHECK( 1.0_bar == Approx( 0.987_atm ) );
-        CHECK( 1.0_atm == Approx( 101325._Pa) );
-        CHECK( 1.0_kT == Approx( 2.47897_kJmol ) );
-        CHECK( 1.0_hartree == Approx( 2625.499_kJmol ) );
-    }
-#endif
+    typedef double T;                                                       //!< floating point size
+    constexpr T operator"" _rad(long double a) { return a; }                //!< angle in radians
+    constexpr T operator"" _deg(long double a) { return a * pc::pi / 180; } //!< angle in degrees (to radians)
+    constexpr T operator"" _K(long double temp) { return temp; }            //!< temperature in kelvins
+    constexpr T operator"" _C(long double temp) {
+        return 273.15 + temp;
+    }                                                                 //!< temperature in degrees Celcius (to kelvins)
+    constexpr T operator"" _ps(long double tau) { return tau; }       //!< time in picoseconds
+    constexpr T operator"" _s(long double tau) { return tau * 1e12; } //!< time in seconds (to picoseconds)
+    constexpr T operator"" _angstrom(long double l) { return l; }     //!< length in ångströms
+    constexpr T operator"" _nm(long double l) { return l * 10; }      //!< length in nanometers (to ångströms)
+    constexpr T operator"" _m(long double l) { return l * 1e10; }     //!< length in meters (to ångströms)
+    constexpr T operator"" _bohr(long double l) { return l * 0.52917721092; } //!< length in Bohr radii (to ångströms)
+    constexpr T operator"" _angstrom3(long double l) { return l; }            //!< volume in cubic ångströms
+    constexpr T operator"" _m3(long double v) { return v * 1e30; }    //!< volume in cubic meters (to cubic ångströms)
+    constexpr T operator"" _liter(long double v) { return v * 1e27; } //!< volume in liters (to cubic ångströms)
+    constexpr T operator"" _gmol(long double m) { return m; }         //!< mass in grams per mole
+    constexpr T operator"" _kg(long double m) {
+        return m * 1e3 * pc::Nav;
+    }                                                       //!< mass in kilograms per particle (to grams per mole)
+    constexpr T operator"" _Da(long double m) { return m; } //!< mass in daltons per particle (to grams per mole)
+
+    //! amount of substance in moles (to number of particles)
+    constexpr T operator"" _mol(long double n) { return n * pc::Nav; }
+
+    //! molar concentration (to particle density in number of particles per cubic ångström)
+    constexpr T operator"" _molar(long double c) { return c * 1.0_mol / 1.0_liter; }
+
+    //! millimolar concentration (to particle density in number of particles per cubic ångström)
+    constexpr T operator"" _millimolar(long double c) { return c * 1.0e-3_mol / 1.0_liter; }
+
+    //! pressure in pascals (to particle density in number of particles per cubic ångström – assuming the ideal gas law)
+    inline T operator"" _Pa(long double p) { return p / pc::kT() / 1.0_m3; }
+
+    //! pressure in atmospheres (to particle density in number of particles per cubic ångström – assuming the ideal gas
+    //! law)
+    inline T operator"" _atm(long double p) { return p * 101325.0_Pa; }
+
+    //! pressure in bars (to particles per cubic ångström – assuming the ideal gas law)
+    inline T operator"" _bar(long double p) { return p * 100000.0_Pa; }
+
+    //! dipole moment in electron—ångströms
+    constexpr T operator"" _eA(long double mu) { return mu; }
+
+    //! dipole moment in debyes (to electron-ångströms)
+    constexpr T operator"" _debye(long double mu) { return mu * 0.208194334424626; }
+
+    //! dipole moment in coulomb-meters (to electron ångströms)
+    constexpr T operator"" _Cm(long double mu) { return mu * 1.0_debye / 3.335640951981520e-30; }
+
+    //! energy in kT (to kT)
+    constexpr T operator"" _kT(long double u) { return u; }
+
+    //! energy in joules (to thermal energy units kT)
+    inline T operator"" _J(long double u) { return u / pc::kT(); }
+
+    //! energy in hartrees (to kT)
+    inline T operator"" _hartree(long double u) { return u * 4.35974434e-18_J; }
+
+    //! energy in kilojoules per mole (to kT per particle)
+    inline T operator"" _kJmol(long double u) { return u / pc::kT() / pc::Nav * 1e3; }
+
+    //! energy in kilocalories per mole (to kT per particle)
+    inline T operator"" _kcalmol(long double u) { return u * 4.1868_kJmol; }
+
+    } // namespace ChemistryUnits
+
+    using namespace ChemistryUnits;
 
     namespace u8 {
         const std::string angstrom = "\u00c5";   //!< Angstrom symbol

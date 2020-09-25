@@ -1,3 +1,4 @@
+#include <doctest/doctest.h>
 #include "core.h"
 #include "move.h"
 #include "speciation.h"
@@ -8,23 +9,26 @@
 #include "aux/eigensupport.h"
 #include "spdlog/spdlog.h"
 
-namespace Faunus {
-namespace Move {
+namespace Faunus::Move {
 
 Random Movebase::slump; // static instance of Random (shared for all moves)
 
 void Movebase::from_json(const json &j) {
-    auto it = j.find("repeat");
-    if (it != j.end()) {
-        if (it->is_number())
-            repeat = it->get<double>();
-        else if (it->is_string())
-            if (it->get<std::string>() == "N")
+    if (auto it = j.find("repeat"); it != j.end()) {
+        if (it->is_number()) {
+            repeat = it->get<int>();
+        } else if (it->is_string()) {
+            if (it->get<std::string>() == "N") {
                 repeat = -1;
+            } else {
+                throw std::runtime_error("Unknown string value for 'repeat'");
+            }
+        }
     }
     _from_json(j);
-    if (repeat < 0)
+    if (repeat < 0) {
         repeat = 0;
+    }
 }
 
 void Movebase::to_json(json &j) const {
@@ -234,7 +238,7 @@ Propagator::Propagator(const json &j, Space &spc, Energy::Hamiltonian &pot, MPI:
                     auto move_ptr = std::make_shared<Move::LangevinDynamics>(spc, pot);
                     _moves.push_back<Move::LangevinDynamics>(move_ptr);
                 }
-                    // new moves go here...
+                // new moves go here...
 #ifdef ENABLE_MPI
                 else if (it.key() == "temper")
                     _moves.emplace_back<Move::ParallelTempering>(spc, mpi);
@@ -258,9 +262,7 @@ void Propagator::addWeight(double weight) {
     _repeat = int(std::accumulate(_weights.begin(), _weights.end(), 0.0));
 }
 
-void to_json(json &j, const Propagator &propagator) {
-    j = propagator._moves;
-}
+void to_json(json &j, const Propagator &propagator) { j = propagator._moves; }
 
 #ifdef ENABLE_MPI
 
@@ -292,10 +294,10 @@ void ParallelTempering::_move(Change &change) {
     p.resize(spc.p.size());
     if (goodPartner()) {
         change.all = true;
-        pt.sendExtra[VOLUME] = Vold;  // copy current volume for sending
+        pt.sendExtra[VOLUME] = Vold; // copy current volume for sending
         // store group sizes
         for (auto &g : spc.groups) {
-    	    pt.sendExtra.push_back((float)g.size());
+            pt.sendExtra.push_back((float)g.size());
         }
         pt.recv(mpi, partner, p);     // receive particles
         pt.send(mpi, spc.p, partner); // send everything
@@ -315,7 +317,7 @@ void ParallelTempering::_move(Change &change) {
         size_t i = 0;
         for (auto &g : spc.groups) {
             // assign correct sizes to the groups
-            g.resize((int)pt.recvExtra[i+1]);
+            g.resize((int)pt.recvExtra[i + 1]);
             if (g.atomic == false) {
                 // update mass center of molecular groups
                 g.cm = Geometry::massCenter(g.begin(), g.end(), spc.geo.getBoundaryFunc(), -g.begin()->pos);
@@ -884,6 +886,29 @@ TranslateRotate::TranslateRotate(Space &spc) : spc(spc) {
     name = "moltransrot";
     repeat = -1; // meaning repeat N times
 }
+} // namespace Faunus::Move
+
+#ifdef DOCTEST_LIBRARY_INCLUDED
+TEST_CASE("[Faunus] TranslateRotate") {
+    using namespace Faunus;
+    CHECK(!atoms.empty());     // set in a previous test
+    CHECK(!molecules.empty()); // set in a previous test
+
+    Space spc;
+    Move::TranslateRotate mv(spc);
+    json j = R"( {"molecule":"A", "dp":1.0, "dprot":0.5, "dir":[0,1,0], "repeat":2 })"_json;
+    mv.from_json(j);
+
+    j = json(mv).at(mv.name);
+    CHECK(j.at("molecule") == "A");
+    // CHECK(j.at("dir") == Point(0, 1, 0));
+    CHECK(j.at("dp") == 1.0);
+    CHECK(j.at("repeat") == 2);
+    CHECK(j.at("dprot") == 0.5);
+}
+#endif
+
+namespace Faunus::Move {
 
 void SmartTranslateRotate::_to_json(json &j) const {
     j = {{"Number of counts inside geometry", cntInner},
@@ -1129,7 +1154,7 @@ void ConformationSwap::_move(Change &change) {
 
             // Get a new conformation that should be properly wrapped around the boundaries
             // (if applicable) and have the same mass-center as "g->cm".
-            Tpvec p = inserter(spc.geo, spc.p, molecules[molid]);
+            auto p = inserter(spc.geo, molecules[molid], spc.p);
             if (p.size() not_eq g->size())
                 throw std::runtime_error(name + ": conformation atom count mismatch");
 
@@ -1162,6 +1187,4 @@ ConformationSwap::ConformationSwap(Space &spc) : spc(spc) {
     inserter.allow_overlap = true;
 }
 
-} // namespace Move
-
-} // namespace Faunus
+} // namespace Faunus::Move

@@ -4,12 +4,17 @@
 #include "externalpotential.h" // Energybase implemented here
 #include "space.h"
 #include "aux/iteratorsupport.h"
+#include "aux/pairmatrix.h"
 #include <range/v3/view.hpp>
 #include <Eigen/Dense>
-#include "spdlog/spdlog.h"
+#include <spdlog/spdlog.h>
 
 #ifdef ENABLE_FREESASA
 #include <freesasa.h>
+#endif
+
+#ifdef __cpp_lib_parallel_algorithm
+#include <execution>
 #endif
 
 namespace Faunus {
@@ -167,6 +172,7 @@ struct PolicyIonIon : public EwaldPolicyBase {
  * - GCC9: Eigen is 4-5 times faster on x86 linux; ~1.5 times *lower on macos.
  */
 struct PolicyIonIonEigen : public PolicyIonIon {
+    using PolicyIonIon::updateComplex;
     void updateComplex(EwaldData &, Space::Tgvec &) const override;
     double reciprocalEnergy(const EwaldData &) override;
 };
@@ -175,6 +181,7 @@ struct PolicyIonIonEigen : public PolicyIonIon {
  * @brief Ion-Ion Ewald with isotropic periodic boundary conditions (IPBC)
  */
 struct PolicyIonIonIPBC : public PolicyIonIon {
+    using PolicyIonIon::updateComplex;
     PolicyIonIonIPBC();
     void updateBox(EwaldData &, const Point &) const override;
     void updateComplex(EwaldData &, Space::Tgvec &) const override;
@@ -186,6 +193,7 @@ struct PolicyIonIonIPBC : public PolicyIonIon {
  * @warning Incomplete and under construction
  */
 struct PolicyIonIonIPBCEigen : public PolicyIonIonIPBC {
+    using PolicyIonIonIPBC::updateComplex;
     void updateComplex(EwaldData &, Space::Tgvec &) const override;
 };
 

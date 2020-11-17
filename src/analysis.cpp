@@ -195,13 +195,29 @@ SaveState::SaveState(json j, Space &spc) {
     save_random_number_generator_state = j.value("saverandom", false);
     filename = MPI::prefix + j.at("file").get<std::string>();
     use_numbered_files = !j.value("overwrite", false);
+    convert_hexagonal_prism_to_cuboid = j.value("convert_hexagon", false);
 
     if (auto suffix = filename.substr(filename.find_last_of(".") + 1); suffix == "aam") {
         writeFunc = [&](auto &file) { FormatAAM::save(file, spc.p); };
     } else if (suffix == "gro") {
         writeFunc = [&](auto &file) { FormatGRO::save(file, spc); };
     } else if (suffix == "pqr") {
-        writeFunc = [&](auto &file) { FormatPQR::save(file, spc.groups, spc.geo.getLength()); };
+        writeFunc = [&](auto &file) {
+            if (convert_hexagonal_prism_to_cuboid) {
+                auto hexagonal_prism =
+                    std::dynamic_pointer_cast<Geometry::HexagonalPrism>(spc.geo.asSimpleGeometry());
+                if (hexagonal_prism) {
+                    faunus_logger->debug("creating cuboidal PQR from hexagonal prism");
+                    const auto &[cuboid, particles] =
+                        Geometry::HexagonalPrismToCuboid(*hexagonal_prism, spc.activeParticles());
+                    FormatPQR::save(file, particles, cuboid.getLength());
+                } else {
+                    throw std::runtime_error("hexagonal prism required for `convert_to_hexagon`");
+                }
+            } else {
+                FormatPQR::save(file, spc.groups, spc.geo.getLength());
+            }
+        };
     } else if (suffix == "xyz") {
         writeFunc = [&](auto &file) { FormatXYZ::save(file, spc.p, spc.geo.getLength()); };
     } else if (suffix == "json") { // JSON state file
@@ -947,13 +963,14 @@ XTCtraj::XTCtraj(const json &j, Space &s) : filter([](Particle &) { return true;
 }
 
 void XTCtraj::_to_json(json &j) const {
-    j["file"] = file;
+    j["file"] = writer->filename;
     if (not names.empty())
         j["molecules"] = names;
 }
 
 void XTCtraj::_from_json(const json &j) {
-    file = MPI::prefix + j.at("file").get<std::string>();
+    auto file = MPI::prefix + j.at("file").get<std::string>();
+    writer = std::make_shared<XTCWriter>(file);
 
     // By default, *all* active and inactive groups are saved,
     // but here allow for a user defined list of molecule ids
@@ -975,14 +992,14 @@ void XTCtraj::_from_json(const json &j) {
 }
 
 void XTCtraj::_sample() {
-    xtc.setLength(spc.geo.getLength()); // set box dimensions for frame
     // On some gcc/clang and certain ubuntu/macos combinations,
     // the ranges::view::filter(rng,unaryp) clears the `filter` function.
     // Using the ranges piping seem to solve the issue.
     assert(filter);
-    auto particles = spc.p | ranges::cpp20::views::filter(filter);
+    auto coordinates = spc.p | ranges::cpp20::views::filter(filter) |
+                       ranges::cpp20::views::transform([](auto &particle) -> Point & { return particle.pos; });
     assert(filter);
-    xtc.save(file, particles.begin(), particles.end());
+    writer->writeNext(spc.geo.getLength(), coordinates.begin(), coordinates.end());
 }
 
 // =============== MultipoleDistribution ===============

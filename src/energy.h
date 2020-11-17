@@ -8,12 +8,14 @@
 #include <range/v3/view.hpp>
 #include <Eigen/Dense>
 #include <spdlog/spdlog.h>
+#include <numeric>
+#include <algorithm>
 
 #ifdef ENABLE_FREESASA
 #include <freesasa.h>
 #endif
 
-#ifdef __cpp_lib_parallel_algorithm
+#if defined(__cpp_lib_parallel_algorithm) && __has_include(<tbb/tbb.h>)
 #include <execution>
 #endif
 
@@ -260,8 +262,42 @@ class Bonded : public Energybase {
   private:
     void update_intra();                              // finds and adds all intra-molecular bonds of active molecules
     double sum_energy(const BondVector &) const;      // sum energy in vector of BondData
-    double sum_energy(const BondVector &,
-                      const std::vector<int> &) const; // sum energy in vector of BondData for matching particle indices
+
+    /**
+     * @brief Sum energy in vector of BondData for matching particle indices
+     * @param bonds List of bonds
+     * @param indices_of_particles Particle index
+     *
+     * To speed up the bond search, the given indices must be ordered which allows
+     * for binary search which on large systems provides superior performance compared
+     * to simplistic search which scales as number_of_bonds x number_of_moved_particles
+     */
+    template <class RangeOfIndex>
+    double sum_energy(const Bonded::BondVector &bonds, const RangeOfIndex &indices_of_particles) const {
+        assert(std::is_sorted(indices_of_particles.begin(), indices_of_particles.end()));
+
+        auto bond_filter = [&](const auto &bond_ptr) { // determine if bond is part of indices of particles
+            for (auto index : bond_ptr->index) {
+                if (std::binary_search(indices_of_particles.begin(), indices_of_particles.end(), index)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        auto affected_bonds = bonds | ranges::cpp20::views::filter(bond_filter);
+
+        auto bond_energy = [&](const auto &bond_ptr) { return bond_ptr->energyFunc(spc.geo.getDistanceFunc()); };
+
+#if (defined(__clang__) && __clang_major__ >= 10) || (defined(__GNUC__) && __GNUC__ >= 10)
+        return std::transform_reduce(affected_bonds.begin(), affected_bonds.end(), 0.0, std::plus<>(), bond_energy);
+#else
+        double energy = 0.0;
+        for (const auto &bond_ptr : affected_bonds) {
+            energy += bond_energy(bond_ptr);
+        }
+        return energy;
+#endif
+    }
 
   public:
     Bonded(const json &, Space &);
@@ -1177,9 +1213,22 @@ class SASAEnergy : public Energybase {
 }; //!< SASA energy from transfer free energies
 #endif
 
-struct Example2D : public Energybase {
-    Point &i; // reference to 1st particle in the system
-    Example2D(const json &, Space &spc);
+/**
+ * @brief Oscillating energy on a single particle
+ *
+ * This is 2D version of the oscillating potential used
+ * to illustrate parallel tempering in the book
+ * "Understanding Molecular Simulation" by D. Frenkel.
+ */
+class Example2D : public Energybase {
+  private:
+    bool use_2d = true;        // Set to false to apply energy only along x (as by the book)
+    double scale_energy = 1.0; // effective temperature
+    const Point &particle;     // reference to 1st particle in the system
+    void to_json(json &j) const override;
+
+  public:
+    Example2D(const json &j, Space &spc);
     double energy(Change &change) override;
 };
 

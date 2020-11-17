@@ -274,6 +274,10 @@ class HexagonalPrism : public GeometryImplementation {
     template <class Archive> void serialize(Archive &archive) {
         archive(cereal::base_class<GeometryImplementation>(this), box);
     }
+
+    double innerRadius() const; //!< Inner hexagonal radius
+    double outerRadius() const; //!< Outer radius / side-length
+    double height() const;      //!< Prism height
 };
 
 /**
@@ -337,7 +341,7 @@ class Chameleon : public GeometryBase {
     double getVolume(int dim = 3) const override;
     Point setVolume(double, VolumeMethod = ISOTROPIC) override;
     Point getLength() const override; //!< A minimal containing cubic box.
-    // setLength() needed only for IO::FormatXTC::loadnextframe().
+    // setLength() needed only for Move::ReplayMove (stems from IO::XTCReader).
     void setLength(const Point &);                            //!< Sets the box dimensions.
     void boundary(Point &) const override;                    //!< Apply boundary conditions
     Point vdist(const Point &, const Point &) const override; //!< (Minimum) distance between two points
@@ -364,6 +368,8 @@ class Chameleon : public GeometryBase {
 
     //! During the assignment copy everything, but clone the geometry.
     Chameleon &operator=(const Chameleon &geo);
+
+    std::shared_ptr<GeometryImplementation> asSimpleGeometry();
 };
 
 inline void Chameleon::randompos(Point &m, Random &rand) const {
@@ -666,6 +672,33 @@ double rootMeanSquareDeviation(InputIt1 begin, InputIt1 end, InputIt2 d_begin, B
  * Similar to routine described in doi:10.1021/jp010360o
  */
 ParticleVector mapParticlesOnSphere(const ParticleVector &);
+
+/**
+ * @brief Convert particles in hexagonal prism to space-filled cuboid
+ * @param hexagon Input hexagonal prism
+ * @param particles Particles in hexagonal prism
+ * @return Cuboid and particle vector w. positions in cuboidal space
+ *
+ * The generated Cuboid has twice the volume of the hexagonal prism with
+ * side-lengths [2 * inner_radius, 3 * outer_radius, height] and also twice
+ * the number of particles
+ */
+template <typename Particles>
+std::pair<Cuboid, ParticleVector> HexagonalPrismToCuboid(const HexagonalPrism &hexagon, const Particles &particles) {
+    Cuboid cuboid({2.0 * hexagon.innerRadius(), 3.0 * hexagon.outerRadius(), hexagon.height()});
+    ParticleVector cuboid_particles;
+    cuboid_particles.reserve(2 * std::distance(particles.begin(), particles.end()));
+    std::copy(particles.begin(), particles.end(), std::back_inserter(cuboid_particles)); // add central hexagon
+
+    std::transform(particles.begin(), particles.end(), std::back_inserter(cuboid_particles), [&](auto particle) {
+        particle.pos.x() += hexagon.innerRadius() * (particle.pos.x() > 0.0 ? -1.0 : 1.0);
+        particle.pos.y() += hexagon.outerRadius() * (particle.pos.y() > 0.0 ? -1.5 : 1.5);
+        assert(cuboid.collision(particle.pos) == false);
+        return particle;
+    }); // add the four corners; i.e. one extra, split hexagon
+    assert(std::fabs(cuboid.getVolume() - 2.0 * hexagon.getVolume()) <= pc::epsilon_dbl);
+    return {cuboid, cuboid_particles};
+}
 
 } // namespace Geometry
 } // namespace Faunus

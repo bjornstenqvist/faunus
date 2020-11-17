@@ -749,6 +749,17 @@ properties:
                         repeat: {type: integer}
                     additionalProperties: false
                     type: object
+
+                replay:
+                    properties:
+                        file:
+                            type: string
+                            pattern: "(.*?)\\.(xtc)$"
+                            description: An XTC file with the trajectory to replay
+                    required: [file]
+                    additionalProperties: false
+                    type: object
+
          
     analysis:
         type: array
@@ -896,6 +907,7 @@ properties:
                         nskip: {type: integer, default: 0, description: "Initial steps to skip"}
                         saverandom: {type: boolean, default: false, description: "Include random number state"}
                         overwrite: {type: boolean, default: false, description: "Overwrite file for step, i.e. no file numbering"}
+                        convert_hexagon: {type: boolean, default: false, description: "Convert hexagonal prism to space-filling cuboid; `pqr` only"}
                     required: [file]
                     additionalProperties: false
                     type: object

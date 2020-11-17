@@ -4,6 +4,7 @@
 set(EXAMPLES_DIR ${CMAKE_SOURCE_DIR}/examples)
 set(YASON ${CMAKE_SOURCE_DIR}/scripts/yason.py)
 set(JSON_COMPARE ${CMAKE_SOURCE_DIR}/scripts/jsoncompare.py)
+set(CSV_COMPARE ${CMAKE_SOURCE_DIR}/scripts/csvcompare.py)
 
 add_test(
         NAME unittests
@@ -37,6 +38,15 @@ add_test(
         WORKING_DIRECTORY ${EXAMPLES_DIR}/penalty)
 set_property(TEST penalty APPEND PROPERTY ENVIRONMENT FAUNUS_EXECUTABLE=$<TARGET_FILE:faunus>)
 set_property(TEST penalty APPEND PROPERTY ENVIRONMENT YASON_EXECUTABLE=${YASON})
+
+if (ENABLE_MPI)
+    add_test(
+        NAME temper
+        COMMAND sh -c "jupyter nbconvert --execute temper.ipynb --ExecutePreprocessor.timeout=None"
+        WORKING_DIRECTORY ${EXAMPLES_DIR}/temper)
+    set_property(TEST temper APPEND PROPERTY ENVIRONMENT FAUNUS_EXECUTABLE=$<TARGET_FILE:faunus>)
+    set_property(TEST temper APPEND PROPERTY ENVIRONMENT MPIEXEC=${MPIEXEC_EXECUTABLE})
+endif()
 
 add_test(
         NAME multipole
@@ -161,6 +171,16 @@ add_test(
     | $<TARGET_FILE:faunus> --quiet --state bulk.state.json\
     ; ${PYTHON_EXECUTABLE} ${JSON_COMPARE} bulk.out.json out.json --tol 0.05"
         WORKING_DIRECTORY ${EXAMPLES_DIR}/bulk)
+set_property(TEST bulk PROPERTY FIXTURES_SETUP bulk)
+
+add_test(
+        NAME bulk-replay
+        COMMAND sh -c "${PYTHON_EXECUTABLE} ${YASON} bulk-replay.yml\
+    | $<TARGET_FILE:faunus> --quiet \
+    ; diff -q ../bulk/traj.xtc traj.xtc \
+    && ${CSV_COMPARE} -q --tol 0.04 --small 0.1 ../bulk/rdf.dat rdf.dat"
+        WORKING_DIRECTORY ${EXAMPLES_DIR}/bulk-replay)
+set_property(TEST bulk-replay PROPERTY FIXTURES_REQUIRED bulk)
 
 add_test(
         NAME seawater
@@ -185,6 +205,7 @@ add_test(
 install(FILES
         ${EXAMPLES_DIR}/README.md
         ${EXAMPLES_DIR}/bulk/bulk.yml
+        ${EXAMPLES_DIR}/bulk-replay/bulk-replay.yml
         ${EXAMPLES_DIR}/cluster/cluster.yml
         ${EXAMPLES_DIR}/cluster/cluster.agr
         ${EXAMPLES_DIR}/cluster/cluster.out.json
@@ -242,6 +263,8 @@ install(FILES
         ${EXAMPLES_DIR}/swapconf/swapconf.state.json
         ${EXAMPLES_DIR}/swapconf/swapconf.conformations.pqr
         ${EXAMPLES_DIR}/swapconf/swapconf.weights.dat
+        ${EXAMPLES_DIR}/temper/temper.yml
+        ${EXAMPLES_DIR}/temper/temper.ipynb
         ${EXAMPLES_DIR}/titration/titration.yml
         ${EXAMPLES_DIR}/titration/titration.out.json
         ${EXAMPLES_DIR}/titration/titration.state.json

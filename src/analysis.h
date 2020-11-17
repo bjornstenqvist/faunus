@@ -270,6 +270,7 @@ class SaveState : public Analysisbase {
     std::function<void(const std::string &)> writeFunc = nullptr;
     bool save_random_number_generator_state = false;
     bool use_numbered_files = true;
+    bool convert_hexagonal_prism_to_cuboid = false;
     std::string filename;
     void _to_json(json &) const override;
     void _sample() override;
@@ -347,16 +348,12 @@ class XTCtraj : public Analysisbase {
     std::vector<int> molids;        // molecule ids to save to disk
     std::vector<std::string> names; // molecule names of above
     std::function<bool(Particle &)> filter; // function to filter molecule ids
+    Space &spc;
+    std::shared_ptr<XTCWriter> writer;
 
     void _to_json(json &) const override;
     void _from_json(const json &) override;
-
-    FormatXTC xtc;
-    Space &spc;
-    std::string file;
-
     void _sample() override;
-
   public:
     XTCtraj(const json &j, Space &s);
 };
@@ -365,7 +362,7 @@ class XTCtraj : public Analysisbase {
  * @brief Excess pressure using virtual volume move
  */
 class VirtualVolume : public Analysisbase {
-    Space spc;
+    Space &spc;
     Geometry::VolumeMethod volume_scaling_method = Geometry::ISOTROPIC;
     std::string filename;                                  // output filename (optional)
     std::unique_ptr<std::ostream> output_stream = nullptr; // output file stream
